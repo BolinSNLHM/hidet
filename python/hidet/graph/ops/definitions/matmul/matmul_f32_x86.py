@@ -78,7 +78,7 @@ class MatmulF32Taskx86(Task):
     @tune.space(2, 'block_m', [2016, 3024])
     @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 752, 896, 1024])
     @tune.space(2, 'block_k', [96, 128, 256, 384, 512, 560, 784])
-    @tune.space(2, 'nthreads', [4, 8, 16])
+    @tune.space(2, 'nthreads', [4, 8, 16, 32, 64])
     @tune.space(1, 'block_m', [2016])
     @tune.space(1, 'block_n', [384, 512, 896])
     @tune.space(1, 'block_k', [384, 512, 560])
