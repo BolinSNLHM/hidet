@@ -363,11 +363,18 @@ class MatmulF32Taskx86(Task):
                 nbs_rnd_down = n_size // block_n
                 kbs_rnd_down = k_size // block_k
 
-                packedb_global_alloc = avx_malloc(k_size * n_size * 32, 64)
-                packedb_global = as_tensor_pointer(
-                    packedb_global_alloc, float32, # shape=[k_size, n_size]
-                    layout=row_layout(kbs_rnd_down, nbs_rnd_down) * packed_b_layout
+                # packedb_global_alloc = avx_malloc(k_size * n_size * 32, 64)
+                packedb_global_alloc = avx_malloc(
+                    kbs_rnd_down * nbs_rnd_down * block_k * block_n * 32, 64
                 )
+                # packedb_global = as_tensor_pointer(
+                #     packedb_global_alloc, float32, # shape=[k_size, n_size]
+                #     layout=row_layout(kbs_rnd_down, nbs_rnd_down) * packed_b_layout
+                #     # layout=row_layout(kbs_rnd_down * block_k, nbs_rnd_down * block_n)
+                # )
+
+                packedb_global_ptr = cast(packedb_global_alloc, ~float32)
+                single_packedb_size = block_k * block_n
 
                 # for kb in grid(kbs_rnd_down, attrs='p'+str(nthreads_packing)):
                 for kb in grid(kbs_rnd_down):
@@ -379,8 +386,9 @@ class MatmulF32Taskx86(Task):
                         jb = min(block_n, n_size - j)
                         assert jb == block_n
 
+                        mypacked_b_ptr = packedb_global_ptr + kb * nbs_rnd_down * single_packedb_size + nb * single_packedb_size
                         my_packedb = as_tensor_pointer(
-                            ~packedb_global[p, j], float32,
+                            mypacked_b_ptr, float32,
                             layout=packed_b_layout
                         )
 
@@ -478,13 +486,17 @@ class MatmulF32Taskx86(Task):
                             nr = jb % tile_n
 
                             if jb == block_n and pb == block_k:
+                                my_packedb_ptr = packedb_global_ptr + kb * nbs_rnd_down * single_packedb_size \
+                                                                    + nb * single_packedb_size
                                 my_packedb = as_tensor_pointer(
-                                    ~packedb_global[p, j], dtype=float32,
-                                    layout=packed_b_layout
+                                    my_packedb_ptr, dtype=float32, layout=packed_b_layout
                                 )
+
                                 macro_kernel(packed_a, my_packedb, ~c[i, j], ib, block_n, block_k, kb == 0)
 
                             else:
+                                # This part is indeed never used,
+                                # But where TF is the error then? All those zero's :(
                                 for micropanel_idx in range(np):
                                     panel_col_start = micropanel_idx * tile_n
                                     for micropanel_row in range(pb):
