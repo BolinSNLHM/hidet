@@ -392,6 +392,11 @@ class MatmulF32Taskx86(Task):
                             layout=packed_b_layout
                         )
 
+                        # my_packedb = as_tensor_pointer(
+                        #     ~packedb_global[p, j], float32,
+                        #     layout=packed_b_layout
+                        # )
+
                         np = pb // tile_n
                         nr = pb % tile_n
                         for micropanel_idx in range(np):
@@ -492,6 +497,14 @@ class MatmulF32Taskx86(Task):
                                     my_packedb_ptr, dtype=float32, layout=packed_b_layout
                                 )
 
+                                # my_packedb = as_tensor_pointer(
+                                #     my_packedb_ptr, dtype=float32, layout=packed_b_layout
+                                # )
+
+                                # my_packedb = as_tensor_pointer(
+                                #     ~packed, dtype=float32,
+                                #     layout=packed_b_layout
+                                # )
                                 macro_kernel(packed_a, my_packedb, ~c[i, j], ib, block_n, block_k, kb == 0)
 
                             else:
