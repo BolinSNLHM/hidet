@@ -14,7 +14,7 @@ from hidet.ir.dtypes import float32, int32
 from hidet.ir.expr import cast
 from hidet.ir.func import IRModule
 from hidet.ir.compute import TensorNode
-from hidet.ir.primitives import avx_malloc, avx_free
+from hidet.ir.primitives import avx_malloc, avx_free, printf
 from hidet.ir.primitives.cpu import x86_memset, avx_f32x8_setzero
 from hidet.ir.stmt import DeclareScope
 from hidet.ir.task import Task
@@ -76,18 +76,21 @@ class MatmulF32Taskx86(Task):
     def implement_cpu(self, working_dir: str) -> Union[IRModule, List[IRModule]]:
         return tune.extract_ir_modules(self.schedule_matmulf32_x86)
 
-    @tune.space(2, 'block_m', [2016, 3024])
-    @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 752, 896, 1024])
-    @tune.space(2, 'block_k', [96, 128, 256, 384, 512, 560, 784])
-    @tune.space(2, 'nthreads', [4, 8, 16])
-    @tune.space(2, 'nthreads_packing', [4, 8, 16, 32, 64])
+    @tune.space(2, 'block_m', [2052])
+    # @tune.space(2, 'block_n', [192, 384, 512, 640, 768])
+    # @tune.space(2, 'block_k', [384, 512, 576, 640, 656, 784])
+    @tune.space(2, 'block_n', [512, 480, 496, 528, 544, 560])
+    @tune.space(2, 'block_k', [512, 480, 544, 560])
+    @tune.space(2, 'nthreads', [4, 8, 16, 32])
+    @tune.space(2, 'nthreads_packing', [2, 4, 8, 12, 16])
+    @tune.space(2, 'nthreads_packing_inner', [1, 2, 4, 8])
     @tune.space(1, 'block_m', [2016])
     @tune.space(1, 'block_n', [384, 512, 896])
     @tune.space(1, 'block_k', [384, 512, 560])
     @tune.space(1, 'nthreads', [8, 16])
     def schedule_matmulf32_x86(
-            self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16),
-            nthreads=16, nthreads_packing=4
+            self, block_m=2052, block_n=896, block_k=512, micro_ker=(6, 16),
+            nthreads=16, nthreads_packing=4, nthreads_packing_inner=8,
     ) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
@@ -117,6 +120,10 @@ class MatmulF32Taskx86(Task):
 
         aip_outer_rows = block_m // tile_m
         bip_outer_cols = block_n // tile_n
+
+        nthreads_packing_inner_attr = None
+        if nthreads_packing_inner > 1:
+            nthreads_packing_inner_attr = 'p' + str(nthreads_packing_inner)
 
         with hidet.script_module() as module:
 
@@ -363,46 +370,46 @@ class MatmulF32Taskx86(Task):
                 nbs_rnd_down = n_size // block_n
                 kbs_rnd_down = k_size // block_k
 
-                # packedb_global_alloc = avx_malloc(k_size * n_size * 32, 64)
                 packedb_global_alloc = avx_malloc(
                     kbs_rnd_down * nbs_rnd_down * block_k * block_n * 32, 64
                 )
-                # packedb_global = as_tensor_pointer(
-                #     packedb_global_alloc, float32, # shape=[k_size, n_size]
-                #     layout=row_layout(kbs_rnd_down, nbs_rnd_down) * packed_b_layout
-                #     # layout=row_layout(kbs_rnd_down * block_k, nbs_rnd_down * block_n)
-                # )
 
                 packedb_global_ptr = cast(packedb_global_alloc, ~float32)
                 single_packedb_size = block_k * block_n
 
-                # for kb in grid(kbs_rnd_down, attrs='p'+str(nthreads_packing)):
-                for kb in grid(kbs_rnd_down):
+                for bb in grid(kbs_rnd_down * nbs_rnd_down, attrs='p'+str(nthreads_packing)):
+                    kb = bb // nbs_rnd_down
+                    nb = bb % nbs_rnd_down
                     p = kb * block_k
                     pb = min(block_k, k_size - p)
                     assert pb == block_k
-                    for nb in range(nbs_rnd_down):
-                        j = nb * block_n
-                        jb = min(block_n, n_size - j)
-                        assert jb == block_n
+                    # for nb in range(nbs_rnd_down):
+                    j = nb * block_n
+                    jb = min(block_n, n_size - j)
+                    assert jb == block_n
 
-                        mypacked_b_ptr = packedb_global_ptr + kb * nbs_rnd_down * single_packedb_size + nb * single_packedb_size
-                        my_packedb = as_tensor_pointer(
-                            mypacked_b_ptr, float32,
-                            layout=packed_b_layout
-                        )
+                    mypacked_b_ptr = packedb_global_ptr + kb * nbs_rnd_down * single_packedb_size + nb * single_packedb_size
+                    my_packedb = as_tensor_pointer(
+                        mypacked_b_ptr, float32,
+                        layout=packed_b_layout,
+                    )
 
-                        np = pb // tile_n
-                        nr = pb % tile_n
-                        for micropanel_idx in range(np):
-                            panel_col_start = micropanel_idx * tile_n
-                            for micropanel_row in range(pb):
-                                b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
-                                b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
+                    np = jb // tile_n
+                    # for micropanel_idx in range(np):
+                    #     panel_col_start = micropanel_idx * tile_n
+                    #     for micropanel_row in range(pb):
+                    for my_idx in grid(np * pb, attrs=nthreads_packing_inner_attr):
+                        micropanel_idx = my_idx // pb
+                        micropanel_row = my_idx % pb
+                        panel_col_start = micropanel_idx * tile_n
+                        b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
+                        b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
 
-                                avx_f32x8_store_aligned(~my_packedb[micropanel_row, panel_col_start], b0)
-                                avx_f32x8_store_aligned(~my_packedb[micropanel_row, panel_col_start + 8], b8)
-                        assert nr == 0
+                        avx_f32x8_store_aligned(~my_packedb[micropanel_row, panel_col_start], b0)
+                        avx_f32x8_store_aligned(~my_packedb[micropanel_row, panel_col_start + 8], b8)
+
+                # TODO: In the future, maybe worth trying fuse the packing loop into one loop
+
 
                 for mb in range(mbs):
                     i = mb * block_m
@@ -461,21 +468,31 @@ class MatmulF32Taskx86(Task):
                                 avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 6], res5)
                             if m8r > 0:
                                 remaining_start_col = m8 * 8
+                                a_packing_ptr = ~packed_a[panel_row_start, remaining_start_col]
                                 for remain_off in range(m8r):
                                     curr_remain_col = remaining_start_col + remain_off
                                     for micropanel_row in range(tile_m):
-                                        packed_a[panel_row_start + micropanel_row, curr_remain_col] = a[
+                                        # packed_a[panel_row_start + micropanel_row, curr_remain_col] = a[
+                                        #     i + micropanel_row + panel_row_start, p + curr_remain_col
+                                        # ]
+                                        a_packing_ptr[0] = a[
                                             i + micropanel_row + panel_row_start, p + curr_remain_col
                                         ]
+                                        a_packing_ptr = a_packing_ptr + 1
                         if mr > 0:
                             remain_start_row = mp * tile_m
+                            # a_packing_ptr = ~packed_a[remain_start_row, 0]
                             for remain_col in range(pb):
                                 for remain_row in range(mr):
+                                    # a_packing_ptr[0] = a[i + remain_start_row + remain_row, p + remain_col]
+                                    # a_packing_ptr = a_packing_ptr + 1
                                     packed_a[remain_start_row + remain_row, remain_col] = a[
                                         i + remain_start_row + remain_row, p + remain_col
                                     ]
                                 remain_row = mr
                                 while remain_row < tile_m:
+                                    # a_packing_ptr[0] = 0.0
+                                    # a_packing_ptr = a_packing_ptr + 1
                                     packed_a[remain_start_row + remain_row, remain_col] = 0.0
                                     remain_row += 1
 
@@ -495,8 +512,6 @@ class MatmulF32Taskx86(Task):
                                 macro_kernel(packed_a, my_packedb, ~c[i, j], ib, block_n, block_k, kb == 0)
 
                             else:
-                                # This part is indeed never used,
-                                # But where TF is the error then? All those zero's :(
                                 for micropanel_idx in range(np):
                                     panel_col_start = micropanel_idx * tile_n
                                     for micropanel_row in range(pb):
@@ -507,14 +522,23 @@ class MatmulF32Taskx86(Task):
                                         avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
                                 if nr > 0:
                                     remain_col_start = np * tile_n
+
+                                    b_packing_ptr = cast(~packed_b[0, remain_col_start], ~float32)
+
                                     for remain_row in range(pb):
                                         for remain_col in range(nr):
-                                            packed_b[remain_row, remain_col + remain_col_start] = b[
-                                                p + remain_row, j + remain_col + remain_col_start
-                                            ]
+                                            # packed_b[remain_row, remain_col + remain_col_start] = b[
+                                            #     p + remain_row, j + remain_col + remain_col_start
+                                            # ]
+                                            b_packing_ptr[0] = b[p + remain_row, j + remain_col + remain_col_start]
+                                            # idx += 1
+                                            b_packing_ptr = b_packing_ptr + 1
                                         remain_col = nr
                                         while remain_col < tile_n:
-                                            packed_b[remain_row, remain_col_start + remain_col] = 0.0
+                                            # packed_b[remain_row, remain_col_start + remain_col] = 0.0
+                                            # remain_col += 1
+                                            b_packing_ptr[0] = 0.0
+                                            b_packing_ptr = b_packing_ptr + 1
                                             remain_col += 1
                                 macro_kernel(packed_a, packed_b, ~c[i, j], ib, jb, pb, kb == 0)
                 avx_free(packed_a_alloc)
