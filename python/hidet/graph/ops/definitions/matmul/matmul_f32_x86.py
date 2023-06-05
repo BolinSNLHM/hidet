@@ -80,12 +80,14 @@ class MatmulF32Taskx86(Task):
     @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 544, 576, 896, 1024])
     @tune.space(2, 'block_k', [96, 256, 384, 512, 560, 672, 784, 544])
     @tune.space(2, 'nthreads', [4, 8, 16, 32, 64])
+    @tune.space(2, 'nthreads_packing', [1, 2, 4, 8, 16])
     @tune.space(1, 'block_m', [2016])
     @tune.space(1, 'block_n', [384, 512, 896])
     @tune.space(1, 'block_k', [384, 512, 560])
     @tune.space(1, 'nthreads', [8, 16])
     def schedule_matmulf32_x86(
-            self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16), nthreads=16
+            self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16),
+            nthreads=16, nthreads_packing=1
     ) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
@@ -115,6 +117,10 @@ class MatmulF32Taskx86(Task):
 
         aip_outer_rows = block_m // tile_m
         bip_outer_cols = block_n // tile_n
+
+        attr_packing = 'p' + str(nthreads_packing)
+        if nthreads_packing == 1:
+            attr_packing = None
 
         with hidet.script_module() as module:
 
@@ -197,110 +203,7 @@ class MatmulF32Taskx86(Task):
                 avx_f32x8_store(~c[5, 0], c5)
                 avx_f32x8_store(~c[5, 8], c58)
 
-            @hidet.script
-            def micro_kernel_4x8(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
-
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-                c0 = avx_f32x8_load(~c[0, 0])
-                c1 = avx_f32x8_load(~c[1, 0])
-                c2 = avx_f32x8_load(~c[2, 0])
-                c3 = avx_f32x8_load(~c[3, 0])
-
-                for pp in range(pb):
-                    bb = avx_f32x8_load(~b[pp, 0])
-
-                    aa = avx_f32x8_broadcast(~a[0, pp])
-                    c0 = avx_f32x8_fmadd(aa, bb, c0)
-                    aa = avx_f32x8_broadcast(~a[1, pp])
-                    c1 = avx_f32x8_fmadd(aa, bb, c1)
-                    aa = avx_f32x8_broadcast(~a[2, pp])
-                    c2 = avx_f32x8_fmadd(aa, bb, c2)
-                    aa = avx_f32x8_broadcast(~a[3, pp])
-                    c3 = avx_f32x8_fmadd(aa, bb, c3)
-                avx_f32x8_store(~c[0, 0], c0)
-                avx_f32x8_store(~c[1, 0], c1)
-                avx_f32x8_store(~c[2, 0], c2)
-                avx_f32x8_store(~c[3, 0], c3)
-
-            @hidet.script
-            def micro_kernel_8x8(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
-
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-                c0 = avx_f32x8_load(~c[0, 0])
-                c1 = avx_f32x8_load(~c[1, 0])
-                c2 = avx_f32x8_load(~c[2, 0])
-                c3 = avx_f32x8_load(~c[3, 0])
-                c4 = avx_f32x8_load(~c[4, 0])
-                c5 = avx_f32x8_load(~c[5, 0])
-                c6 = avx_f32x8_load(~c[6, 0])
-                c7 = avx_f32x8_load(~c[7, 0])
-
-                for pp in range(pb):
-                    bb = avx_f32x8_load(~b[pp, 0])
-
-                    aa = avx_f32x8_broadcast(~a[0, pp])
-                    c0 = avx_f32x8_fmadd(aa, bb, c0)
-                    aa = avx_f32x8_broadcast(~a[1, pp])
-                    c1 = avx_f32x8_fmadd(aa, bb, c1)
-                    aa = avx_f32x8_broadcast(~a[2, pp])
-                    c2 = avx_f32x8_fmadd(aa, bb, c2)
-                    aa = avx_f32x8_broadcast(~a[3, pp])
-                    c3 = avx_f32x8_fmadd(aa, bb, c3)
-                    aa = avx_f32x8_broadcast(~a[4, pp])
-                    c4 = avx_f32x8_fmadd(aa, bb, c4)
-                    aa = avx_f32x8_broadcast(~a[5, pp])
-                    c5 = avx_f32x8_fmadd(aa, bb, c5)
-                    aa = avx_f32x8_broadcast(~a[6, pp])
-                    c6 = avx_f32x8_fmadd(aa, bb, c6)
-                    aa = avx_f32x8_broadcast(~a[7, pp])
-                    c7 = avx_f32x8_fmadd(aa, bb, c7)
-                avx_f32x8_store(~c[0, 0], c0)
-                avx_f32x8_store(~c[1, 0], c1)
-                avx_f32x8_store(~c[2, 0], c2)
-                avx_f32x8_store(~c[3, 0], c3)
-                avx_f32x8_store(~c[4, 0], c4)
-                avx_f32x8_store(~c[5, 0], c5)
-                avx_f32x8_store(~c[6, 0], c6)
-                avx_f32x8_store(~c[7, 0], c7)
-
-            @hidet.script
-            def micro_kernel_4x4(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-
-                c0 = avx_f32x4_load(~c[0, 0])
-                c1 = avx_f32x4_load(~c[1, 0])
-                c2 = avx_f32x4_load(~c[2, 0])
-                c3 = avx_f32x4_load(~c[3, 0])
-
-                for pp in range(pb):
-                    bb = avx_f32x4_load(~b[pp, 0])
-
-                    aa = avx_f32x4_broadcast(~a[0, pp])
-                    c0 = avx_f32x4_fmadd(aa, bb, c0)
-                    aa = avx_f32x4_broadcast(~a[1, pp])
-                    c1 = avx_f32x4_fmadd(aa, bb, c1)
-                    aa = avx_f32x4_broadcast(~a[2, pp])
-                    c2 = avx_f32x4_fmadd(aa, bb, c2)
-                    aa = avx_f32x4_broadcast(~a[3, pp])
-                    c3 = avx_f32x4_fmadd(aa, bb, c3)
-                avx_f32x4_store(~c[0, 0], c0)
-                avx_f32x4_store(~c[1, 0], c1)
-                avx_f32x4_store(~c[2, 0], c2)
-                avx_f32x4_store(~c[3, 0], c3)
-
             micro_kernel = micro_kernel_6x16
-            if tile_m == 8 and tile_n == 8:
-                micro_kernel = micro_kernel_8x8
-            elif tile_m == 4 and tile_n == 8:
-                micro_kernel = micro_kernel_4x8
-            elif tile_m == 4 and tile_n == 4:
-                micro_kernel = micro_kernel_4x4
 
             @hidet.script
             def macro_kernel(
@@ -313,30 +216,7 @@ class MatmulF32Taskx86(Task):
                 _nr = jb % tile_n
 
                 # # Loop 2
-                # para = 'p' + str(nthreads)
-                # for mpanel in grid(mpanels, attrs=para):
-                #     mr = tile_m if mpanel != mpanels - 1 or _mr == 0 else _mr
-                #     ii = mpanel * tile_m
-                #     # Loop 1
-                #     for npanel in range(npanels):
-                #         nr = tile_n if npanel != npanels - 1 or _nr == 0 else _nr
-                #         jj = npanel * tile_n
-                #         # micro-kernel
-                #         if mr == tile_m and nr == tile_n:
-                #             micro_kernel(~a[ii, 0], ~b[0, jj], ~c_in_macro[ii, jj], pb, m_size, n_size, is_first)
-                #         else:
-                #             temp_c = tensor(
-                #                 scope=DeclareScope.Default, dtype='float32', layout=row_layout(tile_m, tile_n)
-                #             )
-                #             micro_kernel(~a[ii, 0], ~b[0, jj], temp_c, pb, tile_m, tile_n, True)
-                #             if is_first:
-                #                 for remain_row, remain_col in grid(mr, nr):
-                #                     c_in_macro[ii + remain_row, jj + remain_col] = temp_c[remain_row, remain_col]
-                #             else:
-                #                 for remain_row, remain_col in grid(mr, nr):
-                #                     c_in_macro[ii + remain_row, jj + remain_col] += temp_c[remain_row, remain_col]
-
-                # TODO: fuse the two loops mpanel, npanel into one loop
+                # fuse the two loops mpanel, npanel into one loop
                 para = 'p' + str(nthreads)
                 for mnpanel in grid(mpanels * npanels, attrs=para):
                     mpanel = mnpanel // npanels
@@ -386,11 +266,11 @@ class MatmulF32Taskx86(Task):
                         mp = ib // tile_m
                         mr = ib % tile_m
 
-                        for micropanel_idx in range(mp):
+                        for micropanel_idx in grid(mp):
                             panel_row_start = micropanel_idx * tile_m
                             m8 = pb // 8
                             m8r = pb % 8
-                            for packing_col_idx in range(m8):
+                            for packing_col_idx in grid(m8, attrs=attr_packing):
                                 pack_col_start = packing_col_idx * 8
                                 v0 = avx_f32x8_load(~a[i + panel_row_start, p + pack_col_start])
                                 v1 = avx_f32x8_load(~a[i + panel_row_start + 1, p + pack_col_start])
@@ -441,7 +321,7 @@ class MatmulF32Taskx86(Task):
                                         ]
                         if mr > 0:
                             remain_start_row = mp * tile_m
-                            for remain_col in range(pb):
+                            for remain_col in grid(pb, attrs=attr_packing):
                                 for remain_row in range(mr):
                                     packed_a[remain_start_row + remain_row, remain_col] = a[
                                         i + remain_start_row + remain_row, p + remain_col
@@ -457,17 +337,27 @@ class MatmulF32Taskx86(Task):
                             np = jb // tile_n
                             nr = jb % tile_n
 
-                            for micropanel_idx in range(np):
+                            # for micropanel_idx in range(np):
+                            #     panel_col_start = micropanel_idx * tile_n
+                            #     for micropanel_row in range(pb):
+                            #         b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
+                            #         b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
+                            #
+                            #         avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
+                            #         avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
+                            for idx in grid(np * pb, attrs=attr_packing):
+                                micropanel_idx = idx // pb
+                                micropanel_row = idx % pb
                                 panel_col_start = micropanel_idx * tile_n
-                                for micropanel_row in range(pb):
-                                    b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
-                                    b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
+                                b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
+                                b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
 
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
+                                avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
+                                avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
+
                             if nr > 0:
                                 remain_col_start = np * tile_n
-                                for remain_row in range(pb):
+                                for remain_row in grid(pb, attrs=attr_packing):
                                     for remain_col in range(nr):
                                         packed_b[remain_row, remain_col + remain_col_start] = b[
                                             p + remain_row, j + remain_col + remain_col_start
