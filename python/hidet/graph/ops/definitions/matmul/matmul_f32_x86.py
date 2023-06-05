@@ -76,10 +76,10 @@ class MatmulF32Taskx86(Task):
     def implement_cpu(self, working_dir: str) -> Union[IRModule, List[IRModule]]:
         return tune.extract_ir_modules(self.schedule_matmulf32_x86)
 
-    @tune.space(2, 'block_m', [1716, 2016])
-    @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 544, 576, 896])
-    @tune.space(2, 'block_k', [96, 256, 384, 512, 560, 784])
-    @tune.space(2, 'nthreads', [4, 8, 16, 32])
+    @tune.space(2, 'block_m', [2016])
+    @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 544, 576, 896, 1024])
+    @tune.space(2, 'block_k', [96, 256, 384, 512, 560, 672, 784, 544])
+    @tune.space(2, 'nthreads', [4, 8, 16, 32, 64])
     @tune.space(1, 'block_m', [2016])
     @tune.space(1, 'block_n', [384, 512, 896])
     @tune.space(1, 'block_k', [384, 512, 560])
@@ -312,29 +312,53 @@ class MatmulF32Taskx86(Task):
                 _mr = ib % tile_m
                 _nr = jb % tile_n
 
-                # Loop 2
+                # # Loop 2
+                # para = 'p' + str(nthreads)
+                # for mpanel in grid(mpanels, attrs=para):
+                #     mr = tile_m if mpanel != mpanels - 1 or _mr == 0 else _mr
+                #     ii = mpanel * tile_m
+                #     # Loop 1
+                #     for npanel in range(npanels):
+                #         nr = tile_n if npanel != npanels - 1 or _nr == 0 else _nr
+                #         jj = npanel * tile_n
+                #         # micro-kernel
+                #         if mr == tile_m and nr == tile_n:
+                #             micro_kernel(~a[ii, 0], ~b[0, jj], ~c_in_macro[ii, jj], pb, m_size, n_size, is_first)
+                #         else:
+                #             temp_c = tensor(
+                #                 scope=DeclareScope.Default, dtype='float32', layout=row_layout(tile_m, tile_n)
+                #             )
+                #             micro_kernel(~a[ii, 0], ~b[0, jj], temp_c, pb, tile_m, tile_n, True)
+                #             if is_first:
+                #                 for remain_row, remain_col in grid(mr, nr):
+                #                     c_in_macro[ii + remain_row, jj + remain_col] = temp_c[remain_row, remain_col]
+                #             else:
+                #                 for remain_row, remain_col in grid(mr, nr):
+                #                     c_in_macro[ii + remain_row, jj + remain_col] += temp_c[remain_row, remain_col]
+
+                # TODO: fuse the two loops mpanel, npanel into one loop
                 para = 'p' + str(nthreads)
-                for mpanel in grid(mpanels, attrs=para):
+                for mnpanel in grid(mpanels * npanels, attrs=para):
+                    mpanel = mnpanel // npanels
+                    npanel = mnpanel % npanels
                     mr = tile_m if mpanel != mpanels - 1 or _mr == 0 else _mr
+                    nr = tile_n if npanel != npanels - 1 or _nr == 0 else _nr
                     ii = mpanel * tile_m
-                    # Loop 1
-                    for npanel in range(npanels):
-                        nr = tile_n if npanel != npanels - 1 or _nr == 0 else _nr
-                        jj = npanel * tile_n
-                        # micro-kernel
-                        if mr == tile_m and nr == tile_n:
-                            micro_kernel(~a[ii, 0], ~b[0, jj], ~c_in_macro[ii, jj], pb, m_size, n_size, is_first)
+                    jj = npanel * tile_n
+                    # micro-kernel
+                    if mr == tile_m and nr == tile_n:
+                        micro_kernel(~a[ii, 0], ~b[0, jj], ~c_in_macro[ii, jj], pb, m_size, n_size, is_first)
+                    else:
+                        temp_c = tensor(
+                            scope=DeclareScope.Default, dtype='float32', layout=row_layout(tile_m, tile_n)
+                        )
+                        micro_kernel(~a[ii, 0], ~b[0, jj], temp_c, pb, tile_m, tile_n, True)
+                        if is_first:
+                            for remain_row, remain_col in grid(mr, nr):
+                                c_in_macro[ii + remain_row, jj + remain_col] = temp_c[remain_row, remain_col]
                         else:
-                            temp_c = tensor(
-                                scope=DeclareScope.Default, dtype='float32', layout=row_layout(tile_m, tile_n)
-                            )
-                            micro_kernel(~a[ii, 0], ~b[0, jj], temp_c, pb, tile_m, tile_n, True)
-                            if is_first:
-                                for remain_row, remain_col in grid(mr, nr):
-                                    c_in_macro[ii + remain_row, jj + remain_col] = temp_c[remain_row, remain_col]
-                            else:
-                                for remain_row, remain_col in grid(mr, nr):
-                                    c_in_macro[ii + remain_row, jj + remain_col] += temp_c[remain_row, remain_col]
+                            for remain_row, remain_col in grid(mr, nr):
+                                c_in_macro[ii + remain_row, jj + remain_col] += temp_c[remain_row, remain_col]
 
             @hidet.script
             def matmul_kernel_x86(a: float32[m_size, k_size], b: float32[k_size, n_size], c: float32[m_size, n_size]):
