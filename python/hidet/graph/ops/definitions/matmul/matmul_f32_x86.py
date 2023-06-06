@@ -87,7 +87,7 @@ class MatmulF32Taskx86(Task):
     @tune.space(1, 'nthreads', [8, 16])
     def schedule_matmulf32_x86(
             self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16),
-            nthreads=16, nthreads_packing=1
+            nthreads=16, nthreads_packing=4
     ) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
@@ -122,7 +122,70 @@ class MatmulF32Taskx86(Task):
         if nthreads_packing == 1:
             attr_packing = None
 
+        # Shrink the block size of m if there's no more than 2016 rows...
+        # block_m = min(block_m, m_size)
+
         with hidet.script_module() as module:
+            # Add a micro_kernel_4x16 just as the 6x16 one below
+            @hidet.script
+            def micro_kernel_4x16(
+                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32,
+                    is_first: bool
+            ):
+                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
+                c0 = avx_f32x8_load(~c[0, 0])
+                c08 = avx_f32x8_load(~c[0, 8])
+                c1 = avx_f32x8_load(~c[1, 0])
+                c18 = avx_f32x8_load(~c[1, 8])
+                c2 = avx_f32x8_load(~c[2, 0])
+                c28 = avx_f32x8_load(~c[2, 8])
+                c3 = avx_f32x8_load(~c[3, 0])
+                c38 = avx_f32x8_load(~c[3, 8])
+
+                if is_first:
+                    c0 = avx_f32x8_setzero()
+                    c08 = avx_f32x8_setzero()
+                    c1 = avx_f32x8_setzero()
+                    c18 = avx_f32x8_setzero()
+                    c2 = avx_f32x8_setzero()
+                    c28 = avx_f32x8_setzero()
+                    c3 = avx_f32x8_setzero()
+                    c38 = avx_f32x8_setzero()
+
+                a_ptr = cast(a, ~float32)
+                b_ptr = cast(b, ~float32)
+
+                for _ in range(pb):
+                    bb0to7 = avx_f32x8_load_aligned(b_ptr)
+                    bb8to15 = avx_f32x8_load_aligned(b_ptr + 8)
+                    b_ptr = b_ptr + 16
+
+                    aa = avx_f32x8_broadcast(a_ptr)
+                    c0 = avx_f32x8_fmadd(aa, bb0to7, c0)
+                    c08 = avx_f32x8_fmadd(aa, bb8to15, c08)
+
+                    aa = avx_f32x8_broadcast(a_ptr + 1)
+                    c1 = avx_f32x8_fmadd(aa, bb0to7, c1)
+                    c18 = avx_f32x8_fmadd(aa, bb8to15, c18)
+
+                    aa = avx_f32x8_broadcast(a_ptr + 2)
+                    c2 = avx_f32x8_fmadd(aa, bb0to7, c2)
+                    c28 = avx_f32x8_fmadd(aa, bb8to15, c28)
+
+                    aa = avx_f32x8_broadcast(a_ptr + 3)
+                    c3 = avx_f32x8_fmadd(aa, bb0to7, c3)
+                    c38 = avx_f32x8_fmadd(aa, bb8to15, c38)
+
+                    a_ptr = a_ptr + 4
+                avx_f32x8_store(~c[0, 0], c0)
+                avx_f32x8_store(~c[0, 8], c08)
+                avx_f32x8_store(~c[1, 0], c1)
+                avx_f32x8_store(~c[1, 8], c18)
+                avx_f32x8_store(~c[2, 0], c2)
+                avx_f32x8_store(~c[2, 8], c28)
+                avx_f32x8_store(~c[3, 0], c3)
+                avx_f32x8_store(~c[3, 8], c38)
+
 
             @hidet.script
             def micro_kernel_6x16(
@@ -204,6 +267,11 @@ class MatmulF32Taskx86(Task):
                 avx_f32x8_store(~c[5, 8], c58)
 
             micro_kernel = micro_kernel_6x16
+            # if m_size % 6 != 0 and m_size % 4 == 0:
+            #     micro_kernel = micro_kernel_4x16
+            #     tile_m = 4
+            # After all these, adjust block_m to be a multiple of tile_m
+            # block_m = (block_m + tile_m - 1) // tile_m * tile_m
 
             @hidet.script
             def macro_kernel(
@@ -266,11 +334,11 @@ class MatmulF32Taskx86(Task):
                         mp = ib // tile_m
                         mr = ib % tile_m
 
-                        for micropanel_idx in grid(mp):
+                        for micropanel_idx in grid(mp, attrs=attr_packing):
                             panel_row_start = micropanel_idx * tile_m
                             m8 = pb // 8
                             m8r = pb % 8
-                            for packing_col_idx in grid(m8, attrs=attr_packing):
+                            for packing_col_idx in grid(m8):
                                 pack_col_start = packing_col_idx * 8
                                 v0 = avx_f32x8_load(~a[i + panel_row_start, p + pack_col_start])
                                 v1 = avx_f32x8_load(~a[i + panel_row_start + 1, p + pack_col_start])
@@ -321,7 +389,7 @@ class MatmulF32Taskx86(Task):
                                         ]
                         if mr > 0:
                             remain_start_row = mp * tile_m
-                            for remain_col in grid(pb, attrs=attr_packing):
+                            for remain_col in grid(pb):
                                 for remain_row in range(mr):
                                     packed_a[remain_start_row + remain_row, remain_col] = a[
                                         i + remain_start_row + remain_row, p + remain_col
@@ -337,14 +405,6 @@ class MatmulF32Taskx86(Task):
                             np = jb // tile_n
                             nr = jb % tile_n
 
-                            # for micropanel_idx in range(np):
-                            #     panel_col_start = micropanel_idx * tile_n
-                            #     for micropanel_row in range(pb):
-                            #         b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
-                            #         b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
-                            #
-                            #         avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
-                            #         avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
                             for idx in grid(np * pb, attrs=attr_packing):
                                 micropanel_idx = idx // pb
                                 micropanel_row = idx % pb
@@ -357,7 +417,7 @@ class MatmulF32Taskx86(Task):
 
                             if nr > 0:
                                 remain_col_start = np * tile_n
-                                for remain_row in grid(pb, attrs=attr_packing):
+                                for remain_row in grid(pb):
                                     for remain_col in range(nr):
                                         packed_b[remain_row, remain_col + remain_col_start] = b[
                                             p + remain_row, j + remain_col + remain_col_start
