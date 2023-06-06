@@ -131,6 +131,9 @@ class MatmulF32Taskx86(Task):
         aip_outer_rows = block_m // tile_m
         bip_outer_cols = block_n // tile_n
 
+        # if block_m is too big: round it down to the nearest multiple of 6 greater than m_size
+        block_m = min(block_m, (m_size // 6) * 6)
+
         with hidet.script_module() as module:
 
             @hidet.script
@@ -327,7 +330,6 @@ class MatmulF32Taskx86(Task):
                 _mr = ib % tile_m
                 _nr = jb % tile_n
 
-                # fuse the above two loops(mpanel, npanel) into one
                 parallel_attr = 'p' + str(nthreads)
                 for mnpanel in grid(mpanels * npanels, attrs=parallel_attr):
                     mpanel = mnpanel // npanels

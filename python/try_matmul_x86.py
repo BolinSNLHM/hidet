@@ -122,6 +122,10 @@ for n, m, k in [(128, 128, 128), (256, 256, 256), (512, 32, 512), (512, 512, 512
         f.write(f'm={m}, k={k}, n={n}: ansor takes {ansor_latency:.2f} ms\n')
         f.write(f'm={m}, k={k}, n={n}: hidet achieves {np_latency / hidet_latency * 100:.2f}% of numpy efficiency\n')
         f.write(f'm={m}, k={k}, n={n}: hidet achieves {ansor_latency / hidet_latency * 100:.2f}% of ansor efficiency\n')
+<<<<<<< HEAD
+=======
+        f.write(f'm={m}, k={k}, n={n}: ansor takes {ansor_latency:.2f} ms\n')
+>>>>>>> 9d56373540439e42e07d3540d729629c90648c04
         f.write('\n')
 
 
