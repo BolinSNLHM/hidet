@@ -110,11 +110,6 @@ class MatmulF32Taskx86(Task):
 
         tune.check(block_m % tile_m == block_n % tile_n == 0, 'Tile size must divide the corresponding block size')
 
-        # packed_a_type = tensor_type('float32', layout=row_layout(block_m // tile_m, 1) * col_layout(tile_m, block_k))
-        # packed_b_type = tensor_type('float32', layout=row_layout(1, block_n // tile_n) * row_layout(block_k, tile_n))
-        #
-        # aip_outer_rows = block_m // tile_m
-        # bip_outer_cols = block_n // tile_n
 
         # if block_m is too big: round it down to the nearest multiple of 6 greater than m_size
         block_m = min(block_m, (m_size // 6) * 6)
