@@ -131,6 +131,9 @@ class MatmulF32Taskx86(Task):
         aip_outer_rows = block_m // tile_m
         bip_outer_cols = block_n // tile_n
 
+        # if block_m is too big: round it down to the nearest multiple of 6 greater than m_size
+        block_m = min(block_m, (m_size // 6) * 6)
+
         with hidet.script_module() as module:
 
             @hidet.script
@@ -327,7 +330,6 @@ class MatmulF32Taskx86(Task):
                 _mr = ib % tile_m
                 _nr = jb % tile_n
 
-                # fuse the above two loops(mpanel, npanel) into one
                 parallel_attr = 'p' + str(nthreads)
                 for mnpanel in grid(mpanels * npanels, attrs=parallel_attr):
                     mpanel = mnpanel // npanels
@@ -367,107 +369,114 @@ class MatmulF32Taskx86(Task):
                     packed_b_alloc, float32, layout=row_layout(1, bip_outer_cols) * row_layout(block_k, tile_n)
                 )
 
-                for mb in range(mbs):
+                # for mb in range(mbs):
+                #     i = mb * block_m
+                #     ib = min(block_m, m_size - i)
+                #     for kb in range(kbs):
+                for mkb in grid(mbs * kbs):
+                    mb = mkb // kbs
+                    kb = mkb % kbs
+
                     i = mb * block_m
                     ib = min(block_m, m_size - i)
-                    for kb in range(kbs):
-                        p = kb * block_k
-                        pb = min(block_k, k_size - p)
 
-                        mp = ib // tile_m
-                        mr = ib % tile_m
+                    p = kb * block_k
+                    pb = min(block_k, k_size - p)
 
-                        for micropanel_idx in range(mp):
-                            panel_row_start = micropanel_idx * tile_m
-                            m8 = pb // 8
-                            m8r = pb % 8
-                            for packing_col_idx in range(m8):
-                                pack_col_start = packing_col_idx * 8
-                                v0 = avx_f32x8_load(~a[i + panel_row_start, p + pack_col_start])
-                                v1 = avx_f32x8_load(~a[i + panel_row_start + 1, p + pack_col_start])
-                                v2 = avx_f32x8_load(~a[i + panel_row_start + 2, p + pack_col_start])
-                                v3 = avx_f32x8_load(~a[i + panel_row_start + 3, p + pack_col_start])
-                                v4 = avx_f32x8_load(~a[i + panel_row_start + 4, p + pack_col_start])
-                                v5 = avx_f32x8_load(~a[i + panel_row_start + 5, p + pack_col_start])
+                    mp = ib // tile_m
+                    mr = ib % tile_m
 
-                                unpack0 = avx_f32x8_unpacklo(v0, v1)
-                                unpack1 = avx_f32x8_unpackhi(v0, v1)
-                                unpack2 = avx_f32x8_unpacklo(v2, v3)
-                                unpack3 = avx_f32x8_unpackhi(v2, v3)
-                                unpack4 = avx_f32x8_unpacklo(v4, v5)
-                                unpack5 = avx_f32x8_unpackhi(v4, v5)
+                    for micropanel_idx in range(mp):
+                        panel_row_start = micropanel_idx * tile_m
+                        m8 = pb // 8
+                        m8r = pb % 8
+                        for packing_col_idx in range(m8):
+                            pack_col_start = packing_col_idx * 8
+                            v0 = avx_f32x8_load(~a[i + panel_row_start, p + pack_col_start])
+                            v1 = avx_f32x8_load(~a[i + panel_row_start + 1, p + pack_col_start])
+                            v2 = avx_f32x8_load(~a[i + panel_row_start + 2, p + pack_col_start])
+                            v3 = avx_f32x8_load(~a[i + panel_row_start + 3, p + pack_col_start])
+                            v4 = avx_f32x8_load(~a[i + panel_row_start + 4, p + pack_col_start])
+                            v5 = avx_f32x8_load(~a[i + panel_row_start + 5, p + pack_col_start])
 
-                                shf0 = avx_f32x8_shuffle(unpack0, unpack2, 0x44)
-                                shf1 = avx_f32x8_shuffle(unpack4, unpack0, 0xE4)
-                                shf2 = avx_f32x8_shuffle(unpack2, unpack4, 0xEE)
-                                shf3 = avx_f32x8_shuffle(unpack5, unpack1, 0xE4)
-                                shf4 = avx_f32x8_shuffle(unpack3, unpack5, 0xEE)
-                                shf5 = avx_f32x8_shuffle(unpack1, unpack3, 0x44)
+                            unpack0 = avx_f32x8_unpacklo(v0, v1)
+                            unpack1 = avx_f32x8_unpackhi(v0, v1)
+                            unpack2 = avx_f32x8_unpacklo(v2, v3)
+                            unpack3 = avx_f32x8_unpackhi(v2, v3)
+                            unpack4 = avx_f32x8_unpacklo(v4, v5)
+                            unpack5 = avx_f32x8_unpackhi(v4, v5)
 
-                                low_shf1 = avx_f32x8_cast_f32x4(shf1)
-                                res0 = avx_f32x8_insert_f32x4(shf0, low_shf1, 0x1)
-                                res1 = avx_f32x8_permute2f32x4(shf0, shf1, 0x31)
+                            shf0 = avx_f32x8_shuffle(unpack0, unpack2, 0x44)
+                            shf1 = avx_f32x8_shuffle(unpack4, unpack0, 0xE4)
+                            shf2 = avx_f32x8_shuffle(unpack2, unpack4, 0xEE)
+                            shf3 = avx_f32x8_shuffle(unpack5, unpack1, 0xE4)
+                            shf4 = avx_f32x8_shuffle(unpack3, unpack5, 0xEE)
+                            shf5 = avx_f32x8_shuffle(unpack1, unpack3, 0x44)
 
-                                low_shf5 = avx_f32x8_cast_f32x4(shf5)
-                                res2 = avx_f32x8_insert_f32x4(shf2, low_shf5, 0x1)
-                                res3 = avx_f32x8_permute2f32x4(shf2, shf5, 0x31)
+                            low_shf1 = avx_f32x8_cast_f32x4(shf1)
+                            res0 = avx_f32x8_insert_f32x4(shf0, low_shf1, 0x1)
+                            res1 = avx_f32x8_permute2f32x4(shf0, shf1, 0x31)
 
-                                low_shf4 = avx_f32x8_cast_f32x4(shf4)
-                                res4 = avx_f32x8_insert_f32x4(shf3, low_shf4, 0x1)
-                                res5 = avx_f32x8_permute2f32x4(shf3, shf4, 0x31)
+                            low_shf5 = avx_f32x8_cast_f32x4(shf5)
+                            res2 = avx_f32x8_insert_f32x4(shf2, low_shf5, 0x1)
+                            res3 = avx_f32x8_permute2f32x4(shf2, shf5, 0x31)
 
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start], res0)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 1], res2)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 2], res4)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start + 4], res1)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 5], res3)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 6], res5)
-                            if m8r > 0:
-                                remaining_start_col = m8 * 8
-                                for remain_off in range(m8r):
-                                    curr_remain_col = remaining_start_col + remain_off
-                                    for micropanel_row in range(tile_m):
-                                        packed_a[panel_row_start + micropanel_row, curr_remain_col] = a[
-                                            i + micropanel_row + panel_row_start, p + curr_remain_col
-                                        ]
-                        if mr > 0:
-                            remain_start_row = mp * tile_m
-                            for remain_col in range(pb):
-                                for remain_row in range(mr):
-                                    packed_a[remain_start_row + remain_row, remain_col] = a[
-                                        i + remain_start_row + remain_row, p + remain_col
+                            low_shf4 = avx_f32x8_cast_f32x4(shf4)
+                            res4 = avx_f32x8_insert_f32x4(shf3, low_shf4, 0x1)
+                            res5 = avx_f32x8_permute2f32x4(shf3, shf4, 0x31)
+
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start], res0)
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 1], res2)
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 2], res4)
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start + 4], res1)
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 5], res3)
+                            avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 6], res5)
+                        if m8r > 0:
+                            remaining_start_col = m8 * 8
+                            for remain_off in range(m8r):
+                                curr_remain_col = remaining_start_col + remain_off
+                                for micropanel_row in range(tile_m):
+                                    packed_a[panel_row_start + micropanel_row, curr_remain_col] = a[
+                                        i + micropanel_row + panel_row_start, p + curr_remain_col
                                     ]
-                                remain_row = mr
-                                while remain_row < tile_m:
-                                    packed_a[remain_start_row + remain_row, remain_col] = 0.0
-                                    remain_row += 1
+                    if mr > 0:
+                        remain_start_row = mp * tile_m
+                        for remain_col in range(pb):
+                            for remain_row in range(mr):
+                                packed_a[remain_start_row + remain_row, remain_col] = a[
+                                    i + remain_start_row + remain_row, p + remain_col
+                                ]
+                            remain_row = mr
+                            while remain_row < tile_m:
+                                packed_a[remain_start_row + remain_row, remain_col] = 0.0
+                                remain_row += 1
 
-                        for nb in range(nbs):
-                            j = nb * block_n
-                            jb = min(block_n, n_size - j)
-                            np = jb // tile_n
-                            nr = jb % tile_n
+                    for nb in range(nbs):
+                        j = nb * block_n
+                        jb = min(block_n, n_size - j)
+                        np = jb // tile_n
+                        nr = jb % tile_n
 
-                            for micropanel_idx in range(np):
-                                panel_col_start = micropanel_idx * tile_n
-                                for micropanel_row in range(pb):
-                                    b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
-                                    b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
+                        for micropanel_idx in range(np):
+                            panel_col_start = micropanel_idx * tile_n
+                            for micropanel_row in range(pb):
+                                b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
+                                b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
 
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
-                            if nr > 0:
-                                remain_col_start = np * tile_n
-                                for remain_row in range(pb):
-                                    for remain_col in range(nr):
-                                        packed_b[remain_row, remain_col + remain_col_start] = b[
-                                            p + remain_row, j + remain_col + remain_col_start
-                                        ]
-                                    remain_col = nr
-                                    while remain_col < tile_n:
-                                        packed_b[remain_row, remain_col_start + remain_col] = 0.0
-                                        remain_col += 1
-                            macro_kernel(packed_a, packed_b, ~c[i, j], ib, jb, pb, kb == 0)
+                                avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
+                                avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
+                        if nr > 0:
+                            remain_col_start = np * tile_n
+                            for remain_row in range(pb):
+                                for remain_col in range(nr):
+                                    packed_b[remain_row, remain_col + remain_col_start] = b[
+                                        p + remain_row, j + remain_col + remain_col_start
+                                    ]
+                                remain_col = nr
+                                while remain_col < tile_n:
+                                    packed_b[remain_row, remain_col_start + remain_col] = 0.0
+                                    remain_col += 1
+                        macro_kernel(packed_a, packed_b, ~c[i, j], ib, jb, pb, kb == 0)
                 avx_free(packed_a_alloc)
                 avx_free(packed_b_alloc)
 
