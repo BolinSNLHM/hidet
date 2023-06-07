@@ -448,7 +448,8 @@ class Codegen(ModuleFunctor, StmtFunctor, ExprFunctor, TypeFunctor):
                 doc += NewLine() + '#pragma unroll'
         elif stmt.attr.parallel:
             if stmt.attr.parallel_threads:
-                doc += NewLine() + '#pragma omp parallel for schedule(dynamic) num_threads({})'.format(
+                # TODO: I got rid of the 'dynamic' scheduling option for now.
+                doc += NewLine() + '#pragma omp parallel for num_threads({})'.format(
                     stmt.attr.parallel_threads
                 )
             else:

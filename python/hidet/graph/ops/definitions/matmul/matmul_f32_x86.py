@@ -79,8 +79,8 @@ class MatmulF32Taskx86(Task):
     # @tune.space(2, 'block_m', [2016])
     # @tune.space(2, 'block_n', [96, 192, 384, 512, 576, 896])
     # @tune.space(2, 'block_k', [96, 256, 384, 512, 784])
-    @tune.space(2, 'nthreads', [1, 2, 4, 8, 16, 32, 64])
-    @tune.space(2, 'nthreads_packing', [1, 2, 4, 8, 16, 32, 64])
+    @tune.space(2, 'nthreads', [1, 2, 4, 8, 12, 16, 20, 24, 32, 64])
+    @tune.space(2, 'nthreads_packing', [1, 2, 4, 8, 12, 16, 20, 24, 32, 64])
     # @tune.space(1, 'block_m', [2016])
     # @tune.space(1, 'block_n', [384, 512, 896])
     # @tune.space(1, 'block_k', [384, 512, 560])
@@ -156,21 +156,26 @@ class MatmulF32Taskx86(Task):
                     packed_b_ptr, dtype=float32,
                     layout=row_layout(1, n_size // tile_n) * row_layout(k_size, tile_n),
                 )
+                b_ptr = cast(b, ~float32)
                 width8_panels = k_size // 8  # TODO: this '8' should be replaced by
                 w8_panel_size = k_size * 8
                 width8_remainder = k_size % 8
                 assert width8_remainder == 0  # TODO: handle this case later.
                 for panel_idx in grid(width8_panels, attrs=parallel_packing_attr):
-                    panel_start_ptr = packed_b_ptr + (panel_idx * w8_panel_size)
-                    for panel_row in range(k_size):
-                        v0 = avx_f32x8_load(~b[panel_row, panel_idx * 8])
-                        avx_f32x8_store_aligned(panel_start_ptr + panel_row * 8, v0)
+                    for ax4, ax6 in grid((32, 4)):
+                        # v0 = avx_f32x8_load(b_ptr + (ax4 * 512 + ax6 * 128 + panel_idx * 8))
+                        avx_f32x8_store_aligned(packed_b_ptr + (panel_idx * 1024 + ax4 * 32 + ax6 * 8),
+                                                avx_f32x8_load(b_ptr + (ax4 * 512 + ax6 * 128 + panel_idx * 8)))
+
+                    # panel_start_ptr = packed_b_ptr + (panel_idx * w8_panel_size)
+                    # for panel_row in range(k_size):
+                    #     v0 = avx_f32x8_load(~b[panel_row, panel_idx * 8])
+                    #     avx_f32x8_store_aligned(panel_start_ptr + panel_row * 8, v0)
 
                 ntasks = k_size // 8
                 task_nouter_iterations = k_size // 8
 
                 a_ptr = cast(a, ~float32)
-                b_ptr = cast(b, ~float32)
                 c_ptr = cast(c, ~float32)
 
                 k_outer_iters = k_size // 4
@@ -231,14 +236,16 @@ class MatmulF32Taskx86(Task):
                             v5 = avx_f32x8_fmadd(avx_f32x8_broadcast(a_ptr + cse_var_4 + 643), bb, v5)
                             v6 = avx_f32x8_fmadd(avx_f32x8_broadcast(a_ptr + cse_var_4 + 771), bb, v6)
                             v7 = avx_f32x8_fmadd(avx_f32x8_broadcast(a_ptr + cse_var_4 + 899), bb, v7)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 0 * 128 + task_idx * 8), v0)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 1 * 128 + task_idx * 8), v1)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 2 * 128 + task_idx * 8), v2)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 3 * 128 + task_idx * 8), v3)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 4 * 128 + task_idx * 8), v4)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 5 * 128 + task_idx * 8), v5)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 6 * 128 + task_idx * 8), v6)
-                        avx_f32x8_store(c_ptr + (i_outer_inner * 1024 + 7 * 128 + task_idx * 8), v7)
+                        c_ptr_base = c_ptr + i_outer_inner * 1024 + task_idx * 8
+                        avx_f32x8_store(c_ptr_base, v0)
+                        avx_f32x8_store(c_ptr_base + 128, v1)
+                        avx_f32x8_store(c_ptr_base + 256, v2)
+                        avx_f32x8_store(c_ptr_base + 384, v3)
+                        avx_f32x8_store(c_ptr_base + 512, v4)
+                        avx_f32x8_store(c_ptr_base + 640, v5)
+                        avx_f32x8_store(c_ptr_base + 768, v6)
+                        avx_f32x8_store(c_ptr_base + 896, v7)
+
 
         assert isinstance(matmul_kernel_x86, hidet.ir.Function)
         matmul_kernel_x86.kind = "cpu_kernel"

@@ -18,7 +18,7 @@ def matmul_ansor(M, K, N, dtype):
         (M, N),
         lambda i, j: te.sum(A[i, k] * B[k, j], axis=k),
         name="matmul_ansor",
-        attrs={"layout_free_placeholders": [A, B]},        # Enable automatic layout transform for B TODO: What is this?
+        attrs={"layout_free_placeholders": [B]},        # Enable automatic layout transform for B TODO: What is this?
     )
 
     return [A, B, rst]
@@ -28,7 +28,7 @@ target = tvm.target.Target("llvm -mcpu=core-avx2")
 
 debug_cache_tuning(True)
 hidet.option.search_space(2)
-hidet.option.cache_dir("./cache-branchISlike-ansor-128")
+hidet.option.cache_dir("./NODYNAMIC-NEWcache-branchISlike-ansor-128")
 hidet.option.parallel_build(True)
 # for m, k, n in [(13, 1, 17), (18, 32, 96), (24, 64, 255), (24, 68, 512), (128, 128, 128), (192, 64, 128), (192, 128, 128), (192, 256, 256), (784, 40, 120), (784, 120, 40), (480, 512, 16), (384, 384, 32), (784, 40, 120),
 #                 (256, 256, 256), (384, 256, 256),
@@ -85,13 +85,13 @@ for n, m, k in [(128, 128, 128)]:
 
     ansor_task = tvm.auto_scheduler.SearchTask(func=matmul_ansor, args=(m, k, n, "float32"), target=target)
     log_file = f"matmul_{m}x{k}x{k}.json"
-    tune_option = auto_scheduler.TuningOptions(
-        num_measure_trials=1000,
-        measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
-        verbose=2,
-    )
-
-    ansor_task.tune(tune_option)
+    # # tune_option = auto_scheduler.TuningOptions(
+    # #     num_measure_trials=1000,
+    # #     measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
+    # #     verbose=2,
+    # # )
+    #
+    # ansor_task.tune(tune_option)
     sch, args = ansor_task.apply_best(log_file)
 
     with open(f"./matmul_TIR_{m}x{k}x{n}", 'w') as f:
@@ -115,7 +115,7 @@ for n, m, k in [(128, 128, 128)]:
         lambda: ansor_func(a_tvm, b_tvm, c_tvm), repeat=100
     )
 
-    with open(f"./perf-branchISlike-ansor-128.txt", 'a+') as f:
+    with open(f"./NODYNAMIC-NEWperf-branchISlike-ansor-128.txt", 'a+') as f:
         f.write('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n\n')
         f.write(f'm={m}, k={k}, n={n}: hidet takes {hidet_latency:.2f} ms\n')
         f.write(f'm={m}, k={k}, n={n}: numpy takes {np_latency:.2f} ms\n')
