@@ -80,12 +80,14 @@ class MatmulF32Taskx86(Task):
     @tune.space(2, 'block_n', [144, 192, 256, 384, 512, 592, 544, 576, 896])
     @tune.space(2, 'block_k', [96, 256, 384, 512, 560, 784])
     @tune.space(2, 'nthreads', [4, 8, 16, 32, 64])
+    @tune.space(2, 'nthreads_packing', [1, 2, 4, 8, 16, 32, 64])
     @tune.space(1, 'block_m', [2016])
     @tune.space(1, 'block_n', [384, 512, 896])
     @tune.space(1, 'block_k', [384, 512, 560])
     @tune.space(1, 'nthreads', [8, 16])
     def schedule_matmulf32_x86(
-            self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16), nthreads=16
+            self, block_m=2016, block_n=896, block_k=512, micro_ker=(6, 16),
+            nthreads=16, nthreads_packing=2
     ) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
@@ -111,367 +113,299 @@ class MatmulF32Taskx86(Task):
         tune.check(block_m % tile_m == block_n % tile_n == 0, 'Tile size must divide the corresponding block size')
 
 
-        # if block_m is too big: round it down to the nearest multiple of 6 greater than m_size
-        block_m = min(block_m, (m_size // 6) * 6)
-        # if block_n is too big: round it down to the nearest multiple of 16 greater than n_size
-        block_n = min(block_n, (n_size // 16) * 16)
-        # if block_k is too big: round it down to the nearest multiple of 16 greater than k_size
-        block_k = min(block_k, (k_size // 16) * 16)
-
-        if block_n == 0:
-            block_n = 16
-        if block_m == 0:
-            block_m = 6
-        if block_k == 0:
-            block_k = 16
-
-        packed_a_type = tensor_type('float32', layout=row_layout(block_m // tile_m, 1) * col_layout(tile_m, block_k))
-        packed_b_type = tensor_type('float32', layout=row_layout(1, block_n // tile_n) * row_layout(block_k, tile_n))
-
-        aip_outer_rows = block_m // tile_m
-        bip_outer_cols = block_n // tile_n
-
-        # if block_m is too big: round it down to the nearest multiple of 6 greater than m_size
-        block_m = min(block_m, (m_size // 6) * 6)
+        packing_parallel_attr = 'p' + str(nthreads_packing)
+        if nthreads_packing == 1:
+            packing_parallel_attr = None
+        parallel_attr = 'p' + str(nthreads)
+        if nthreads == 1:
+            parallel_attr = None
 
         with hidet.script_module() as module:
-
             @hidet.script
-            def micro_kernel_6x16(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32,
-                    is_first: bool
-            ):
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-                c0 = avx_f32x8_load(~c[0, 0])
-                c08 = avx_f32x8_load(~c[0, 8])
-                c1 = avx_f32x8_load(~c[1, 0])
-                c18 = avx_f32x8_load(~c[1, 8])
-                c2 = avx_f32x8_load(~c[2, 0])
-                c28 = avx_f32x8_load(~c[2, 8])
-                c3 = avx_f32x8_load(~c[3, 0])
-                c38 = avx_f32x8_load(~c[3, 8])
-                c4 = avx_f32x8_load(~c[4, 0])
-                c48 = avx_f32x8_load(~c[4, 8])
-                c5 = avx_f32x8_load(~c[5, 0])
-                c58 = avx_f32x8_load(~c[5, 8])
-
-                if is_first:
-                    c0 = avx_f32x8_setzero()
-                    c08 = avx_f32x8_setzero()
-                    c1 = avx_f32x8_setzero()
-                    c18 = avx_f32x8_setzero()
-                    c2 = avx_f32x8_setzero()
-                    c28 = avx_f32x8_setzero()
-                    c3 = avx_f32x8_setzero()
-                    c38 = avx_f32x8_setzero()
-                    c4 = avx_f32x8_setzero()
-                    c48 = avx_f32x8_setzero()
-                    c5 = avx_f32x8_setzero()
-                    c58 = avx_f32x8_setzero()
+            def matmul_kernel_x86(a: float32[m_size, k_size], b: float32[k_size, n_size], c: float32[m_size, n_size]):
+                packed_b_ptr = cast(avx_malloc(k_size * n_size * 32, 32), ~float32)
 
                 a_ptr = cast(a, ~float32)
                 b_ptr = cast(b, ~float32)
+                c_ptr = cast(c, ~float32)
 
-                for _ in range(pb):
-                    bb0to7 = avx_f32x8_load_aligned(b_ptr)
-                    bb8to15 = avx_f32x8_load_aligned(b_ptr + 8)
-                    b_ptr = b_ptr + 16
+                # packing
+                for ax0_ax1_fused_ax2_fused in grid(48, attrs=packing_parallel_attr):
+                    for ax4, ax6 in grid(64, 12):
+                        b_idx = ax4 * 9216 + ax6 * 768 + ax0_ax1_fused_ax2_fused * 16
 
-                    aa = avx_f32x8_broadcast(a_ptr)
-                    c0 = avx_f32x8_fmadd(aa, bb0to7, c0)
-                    c08 = avx_f32x8_fmadd(aa, bb8to15, c08)
+                        v0 = avx_f32x8_load(b_ptr + b_idx)
+                        v8 = avx_f32x8_load(b_ptr + (b_idx + 8))
 
-                    aa = avx_f32x8_broadcast(a_ptr + 1)
-                    c1 = avx_f32x8_fmadd(aa, bb0to7, c1)
-                    c18 = avx_f32x8_fmadd(aa, bb8to15, c18)
+                        avx_f32x8_store_aligned(packed_b_ptr +
+                                                (ax0_ax1_fused_ax2_fused * 12288 + ax4 * 192 + ax6 * 16), v0)
+                        avx_f32x8_store_aligned(packed_b_ptr +
+                                                (ax0_ax1_fused_ax2_fused * 12288 + ax4 * 192 + ax6 * 16 + 8), v8)
 
-                    aa = avx_f32x8_broadcast(a_ptr + 2)
-                    c2 = avx_f32x8_fmadd(aa, bb0to7, c2)
-                    c28 = avx_f32x8_fmadd(aa, bb8to15, c28)
+                # Main computation
+                for i_outer_outer_j_outer_outer_fused_i_outer_inner_fused in grid(512, attrs=parallel_attr):
+                    for j_outer_inner in range(3):
+                        v0 = avx_f32x8_setzero()
+                        v08 = avx_f32x8_setzero()
+                        v1 = avx_f32x8_setzero()
+                        v18 = avx_f32x8_setzero()
+                        v2 = avx_f32x8_setzero()
+                        v28 = avx_f32x8_setzero()
+                        v3 = avx_f32x8_setzero()
+                        v38 = avx_f32x8_setzero()
 
-                    aa = avx_f32x8_broadcast(a_ptr + 3)
-                    c3 = avx_f32x8_fmadd(aa, bb0to7, c3)
-                    c38 = avx_f32x8_fmadd(aa, bb8to15, c38)
+                        for k_outer in range(64):
+                            cse_var_13 = i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + k_outer * 12
+                            cse_var_12 = i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 36864 + j_outer_inner * 12288 + k_outer * 192
+                            cse_var_11 = cse_var_12 + 96
+                            cse_var_10 = cse_var_12 + 80
+                            cse_var_9 = cse_var_12 + 64
+                            cse_var_8 = cse_var_12 + 48
+                            cse_var_7 = cse_var_12 + 32
+                            cse_var_6 = cse_var_12 + 176
+                            cse_var_5 = cse_var_12 + 160
+                            cse_var_4 = cse_var_12 + 16
+                            cse_var_3 = cse_var_12 + 144
+                            cse_var_2 = cse_var_12 + 128
+                            cse_var_1 = cse_var_12 + 112
 
-                    aa = avx_f32x8_broadcast(a_ptr + 4)
-                    c4 = avx_f32x8_fmadd(aa, bb0to7, c4)
-                    c48 = avx_f32x8_fmadd(aa, bb8to15, c48)
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_12)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_12 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + cse_var_13),
+                                                 bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + cse_var_13),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 768)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 768)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1536)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1536)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2304)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2304)),
+                                                    bb8)
 
-                    aa = avx_f32x8_broadcast(a_ptr + 5)
-                    c5 = avx_f32x8_fmadd(aa, bb0to7, c5)
-                    c58 = avx_f32x8_fmadd(aa, bb8to15, c58)
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_4)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_4 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 769)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 769)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1537)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1537)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2305)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2305)),
+                                                    bb8)
 
-                    a_ptr = a_ptr + 6
-                avx_f32x8_store(~c[0, 0], c0)
-                avx_f32x8_store(~c[0, 8], c08)
-                avx_f32x8_store(~c[1, 0], c1)
-                avx_f32x8_store(~c[1, 8], c18)
-                avx_f32x8_store(~c[2, 0], c2)
-                avx_f32x8_store(~c[2, 8], c28)
-                avx_f32x8_store(~c[3, 0], c3)
-                avx_f32x8_store(~c[3, 8], c38)
-                avx_f32x8_store(~c[4, 0], c4)
-                avx_f32x8_store(~c[4, 8], c48)
-                avx_f32x8_store(~c[5, 0], c5)
-                avx_f32x8_store(~c[5, 8], c58)
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_7)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_7 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 770)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 770)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1538)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1538)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2306)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2306)),
+                                                    bb8)
 
-            @hidet.script
-            def micro_kernel_4x8(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_8)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_8 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 3)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 3)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 771)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 771)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1539)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1539)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2307)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2307)),
+                                                    bb8)
 
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-                c0 = avx_f32x8_load(~c[0, 0])
-                c1 = avx_f32x8_load(~c[1, 0])
-                c2 = avx_f32x8_load(~c[2, 0])
-                c3 = avx_f32x8_load(~c[3, 0])
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_9)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_9 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 4)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 4)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 772)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 772)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1540)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1540)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2308)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2308)),
+                                                    bb8)
 
-                for pp in range(pb):
-                    bb = avx_f32x8_load(~b[pp, 0])
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_10)
+                            bb8 = avx_f32x8_load(packed_b_ptr + cse_var_10 + 8)
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 5)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 5)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 773)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 773)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1541)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1541)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2309)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2309)),
+                                                    bb8)
 
-                    aa = avx_f32x8_broadcast(~a[0, pp])
-                    c0 = avx_f32x8_fmadd(aa, bb, c0)
-                    aa = avx_f32x8_broadcast(~a[1, pp])
-                    c1 = avx_f32x8_fmadd(aa, bb, c1)
-                    aa = avx_f32x8_broadcast(~a[2, pp])
-                    c2 = avx_f32x8_fmadd(aa, bb, c2)
-                    aa = avx_f32x8_broadcast(~a[3, pp])
-                    c3 = avx_f32x8_fmadd(aa, bb, c3)
-                avx_f32x8_store(~c[0, 0], c0)
-                avx_f32x8_store(~c[1, 0], c1)
-                avx_f32x8_store(~c[2, 0], c2)
-                avx_f32x8_store(~c[3, 0], c3)
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_11)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_11 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 6)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 6)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 774)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 774)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1542)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1542)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2310)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2310)),
+                                                    bb8)
 
-            @hidet.script
-            def micro_kernel_8x8(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_1)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_1 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 7)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 7)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 775)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 775)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1543)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1543)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2311)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2311)),
+                                                    bb8)
 
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
-                c0 = avx_f32x8_load(~c[0, 0])
-                c1 = avx_f32x8_load(~c[1, 0])
-                c2 = avx_f32x8_load(~c[2, 0])
-                c3 = avx_f32x8_load(~c[3, 0])
-                c4 = avx_f32x8_load(~c[4, 0])
-                c5 = avx_f32x8_load(~c[5, 0])
-                c6 = avx_f32x8_load(~c[6, 0])
-                c7 = avx_f32x8_load(~c[7, 0])
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_2)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_2 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 8)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 8)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 776)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 776)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1544)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1544)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2312)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2312)),
+                                                    bb8)
 
-                for pp in range(pb):
-                    bb = avx_f32x8_load(~b[pp, 0])
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_3)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_3 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 9)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 9)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 777)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 777)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1545)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1545)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2313)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2313)),
+                                                    bb8)
 
-                    aa = avx_f32x8_broadcast(~a[0, pp])
-                    c0 = avx_f32x8_fmadd(aa, bb, c0)
-                    aa = avx_f32x8_broadcast(~a[1, pp])
-                    c1 = avx_f32x8_fmadd(aa, bb, c1)
-                    aa = avx_f32x8_broadcast(~a[2, pp])
-                    c2 = avx_f32x8_fmadd(aa, bb, c2)
-                    aa = avx_f32x8_broadcast(~a[3, pp])
-                    c3 = avx_f32x8_fmadd(aa, bb, c3)
-                    aa = avx_f32x8_broadcast(~a[4, pp])
-                    c4 = avx_f32x8_fmadd(aa, bb, c4)
-                    aa = avx_f32x8_broadcast(~a[5, pp])
-                    c5 = avx_f32x8_fmadd(aa, bb, c5)
-                    aa = avx_f32x8_broadcast(~a[6, pp])
-                    c6 = avx_f32x8_fmadd(aa, bb, c6)
-                    aa = avx_f32x8_broadcast(~a[7, pp])
-                    c7 = avx_f32x8_fmadd(aa, bb, c7)
-                avx_f32x8_store(~c[0, 0], c0)
-                avx_f32x8_store(~c[1, 0], c1)
-                avx_f32x8_store(~c[2, 0], c2)
-                avx_f32x8_store(~c[3, 0], c3)
-                avx_f32x8_store(~c[4, 0], c4)
-                avx_f32x8_store(~c[5, 0], c5)
-                avx_f32x8_store(~c[6, 0], c6)
-                avx_f32x8_store(~c[7, 0], c7)
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_5)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_5 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 10)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 10)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 778)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 778)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1546)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1546)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2314)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2314)),
+                                                    bb8)
 
-            @hidet.script
-            def micro_kernel_4x4(
-                    a: packed_a_type, b: packed_b_type, c_ptr: ~float32, pb: int32, msize: int32, nsize: int32
-            ):
-                c = as_tensor_pointer(c_ptr, dtype=float32, shape=[msize, nsize])
+                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_6)
+                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_6 + 8))
+                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 11)),
+                                                    bb0)
+                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 11)),
+                                                    bb8)
+                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 779)),
+                                                    bb0)
+                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 779)),
+                                                    bb8)
+                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1547)),
+                                                    bb0)
+                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1547)),
+                                                    bb8)
+                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2315)),
+                                                    bb0)
+                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2315)),
+                                                    bb8)
 
-                c0 = avx_f32x4_load(~c[0, 0])
-                c1 = avx_f32x4_load(~c[1, 0])
-                c2 = avx_f32x4_load(~c[2, 0])
-                c3 = avx_f32x4_load(~c[3, 0])
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 0 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v0)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 0 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v08)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 1 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v1)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 1 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v18)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 2 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v2)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 2 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v28)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 3 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v3)
+                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 3 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v38)
 
-                for pp in range(pb):
-                    bb = avx_f32x4_load(~b[pp, 0])
-
-                    aa = avx_f32x4_broadcast(~a[0, pp])
-                    c0 = avx_f32x4_fmadd(aa, bb, c0)
-                    aa = avx_f32x4_broadcast(~a[1, pp])
-                    c1 = avx_f32x4_fmadd(aa, bb, c1)
-                    aa = avx_f32x4_broadcast(~a[2, pp])
-                    c2 = avx_f32x4_fmadd(aa, bb, c2)
-                    aa = avx_f32x4_broadcast(~a[3, pp])
-                    c3 = avx_f32x4_fmadd(aa, bb, c3)
-                avx_f32x4_store(~c[0, 0], c0)
-                avx_f32x4_store(~c[1, 0], c1)
-                avx_f32x4_store(~c[2, 0], c2)
-                avx_f32x4_store(~c[3, 0], c3)
-
-            micro_kernel = micro_kernel_6x16
-            if tile_m == 8 and tile_n == 8:
-                micro_kernel = micro_kernel_8x8
-            elif tile_m == 4 and tile_n == 8:
-                micro_kernel = micro_kernel_4x8
-            elif tile_m == 4 and tile_n == 4:
-                micro_kernel = micro_kernel_4x4
-
-            @hidet.script
-            def macro_kernel(
-                    a: packed_a_type, b: packed_b_type, c_in_macro: float32[m_size, n_size], ib: int32, jb: int32,
-                    pb: int32, is_first: bool
-            ):
-                mpanels = (ib + tile_m - 1) // tile_m
-                npanels = (jb + tile_n - 1) // tile_n
-                _mr = ib % tile_m
-                _nr = jb % tile_n
-
-                parallel_attr = 'p' + str(nthreads)
-                for mnpanel in grid(mpanels * npanels, attrs=parallel_attr):
-                    mpanel = mnpanel // npanels
-                    npanel = mnpanel % npanels
-                    mr = tile_m if mpanel != mpanels - 1 or _mr == 0 else _mr
-                    nr = tile_n if npanel != npanels - 1 or _nr == 0 else _nr
-                    ii = mpanel * tile_m
-                    jj = npanel * tile_n
-                    # micro-kernel
-                    if mr == tile_m and nr == tile_n:
-                        micro_kernel(~a[ii, 0], ~b[0, jj], ~c_in_macro[ii, jj], pb, m_size, n_size, is_first)
-                    else:
-                        temp_c = tensor(
-                            scope=DeclareScope.Default, dtype='float32', layout=row_layout(tile_m, tile_n)
-                        )
-                        micro_kernel(~a[ii, 0], ~b[0, jj], temp_c, pb, tile_m, tile_n, True)
-                        if is_first:
-                            for remain_row, remain_col in grid(mr, nr):
-                                c_in_macro[ii + remain_row, jj + remain_col] = temp_c[remain_row, remain_col]
-                        else:
-                            for remain_row, remain_col in grid(mr, nr):
-                                c_in_macro[ii + remain_row, jj + remain_col] += temp_c[remain_row, remain_col]
-
-            @hidet.script
-            def matmul_kernel_x86(a: float32[m_size, k_size], b: float32[k_size, n_size], c: float32[m_size, n_size]):
-                mbs = (m_size + block_m - 1) // block_m
-                nbs = (n_size + block_n - 1) // block_n
-                kbs = (k_size + block_k - 1) // block_k
-
-                packed_a_alloc = avx_malloc(block_m * block_k * 32, 64)
-                packed_b_alloc = avx_malloc(block_k * block_n * 32, 64)
-
-                packed_a = as_tensor_pointer(
-                    packed_a_alloc, float32, layout=row_layout(aip_outer_rows, 1) * col_layout(tile_m, block_k)
-                )
-                packed_b = as_tensor_pointer(
-                    packed_b_alloc, float32, layout=row_layout(1, bip_outer_cols) * row_layout(block_k, tile_n)
-                )
-
-                for mb in range(mbs):
-                    i = mb * block_m
-                    ib = min(block_m, m_size - i)
-                    for kb in range(kbs):
-                        p = kb * block_k
-                        pb = min(block_k, k_size - p)
-
-                        mp = ib // tile_m
-                        mr = ib % tile_m
-
-                        for micropanel_idx in range(mp):
-                            panel_row_start = micropanel_idx * tile_m
-                            m8 = pb // 8
-                            m8r = pb % 8
-                            for packing_col_idx in range(m8):
-                                pack_col_start = packing_col_idx * 8
-                                v0 = avx_f32x8_load(~a[i + panel_row_start, p + pack_col_start])
-                                v1 = avx_f32x8_load(~a[i + panel_row_start + 1, p + pack_col_start])
-                                v2 = avx_f32x8_load(~a[i + panel_row_start + 2, p + pack_col_start])
-                                v3 = avx_f32x8_load(~a[i + panel_row_start + 3, p + pack_col_start])
-                                v4 = avx_f32x8_load(~a[i + panel_row_start + 4, p + pack_col_start])
-                                v5 = avx_f32x8_load(~a[i + panel_row_start + 5, p + pack_col_start])
-
-                                unpack0 = avx_f32x8_unpacklo(v0, v1)
-                                unpack1 = avx_f32x8_unpackhi(v0, v1)
-                                unpack2 = avx_f32x8_unpacklo(v2, v3)
-                                unpack3 = avx_f32x8_unpackhi(v2, v3)
-                                unpack4 = avx_f32x8_unpacklo(v4, v5)
-                                unpack5 = avx_f32x8_unpackhi(v4, v5)
-
-                                shf0 = avx_f32x8_shuffle(unpack0, unpack2, 0x44)
-                                shf1 = avx_f32x8_shuffle(unpack4, unpack0, 0xE4)
-                                shf2 = avx_f32x8_shuffle(unpack2, unpack4, 0xEE)
-                                shf3 = avx_f32x8_shuffle(unpack5, unpack1, 0xE4)
-                                shf4 = avx_f32x8_shuffle(unpack3, unpack5, 0xEE)
-                                shf5 = avx_f32x8_shuffle(unpack1, unpack3, 0x44)
-
-                                low_shf1 = avx_f32x8_cast_f32x4(shf1)
-                                res0 = avx_f32x8_insert_f32x4(shf0, low_shf1, 0x1)
-                                res1 = avx_f32x8_permute2f32x4(shf0, shf1, 0x31)
-
-                                low_shf5 = avx_f32x8_cast_f32x4(shf5)
-                                res2 = avx_f32x8_insert_f32x4(shf2, low_shf5, 0x1)
-                                res3 = avx_f32x8_permute2f32x4(shf2, shf5, 0x31)
-
-                                low_shf4 = avx_f32x8_cast_f32x4(shf4)
-                                res4 = avx_f32x8_insert_f32x4(shf3, low_shf4, 0x1)
-                                res5 = avx_f32x8_permute2f32x4(shf3, shf4, 0x31)
-
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start], res0)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 1], res2)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 2], res4)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start, pack_col_start + 4], res1)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 2, pack_col_start + 5], res3)
-                                avx_f32x8_store_aligned(~packed_a[panel_row_start + 4, pack_col_start + 6], res5)
-                            if m8r > 0:
-                                remaining_start_col = m8 * 8
-                                for remain_off in range(m8r):
-                                    curr_remain_col = remaining_start_col + remain_off
-                                    for micropanel_row in range(tile_m):
-                                        packed_a[panel_row_start + micropanel_row, curr_remain_col] = a[
-                                            i + micropanel_row + panel_row_start, p + curr_remain_col
-                                        ]
-                        if mr > 0:
-                            remain_start_row = mp * tile_m
-                            for remain_col in range(pb):
-                                for remain_row in range(mr):
-                                    packed_a[remain_start_row + remain_row, remain_col] = a[
-                                        i + remain_start_row + remain_row, p + remain_col
-                                    ]
-                                remain_row = mr
-                                while remain_row < tile_m:
-                                    packed_a[remain_start_row + remain_row, remain_col] = 0.0
-                                    remain_row += 1
-
-                        for nb in range(nbs):
-                            j = nb * block_n
-                            jb = min(block_n, n_size - j)
-                            np = jb // tile_n
-                            nr = jb % tile_n
-
-                            for micropanel_idx in range(np):
-                                panel_col_start = micropanel_idx * tile_n
-                                for micropanel_row in range(pb):
-                                    b0 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start])
-                                    b8 = avx_f32x8_load(~b[p + micropanel_row, j + panel_col_start + 8])
-
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start], b0)
-                                    avx_f32x8_store_aligned(~packed_b[micropanel_row, panel_col_start + 8], b8)
-                            if nr > 0:
-                                remain_col_start = np * tile_n
-                                for remain_row in range(pb):
-                                    for remain_col in range(nr):
-                                        packed_b[remain_row, remain_col + remain_col_start] = b[
-                                            p + remain_row, j + remain_col + remain_col_start
-                                        ]
-                                    remain_col = nr
-                                    while remain_col < tile_n:
-                                        packed_b[remain_row, remain_col_start + remain_col] = 0.0
-                                        remain_col += 1
-                            macro_kernel(packed_a, packed_b, ~c[i, j], ib, jb, pb, kb == 0)
-                avx_free(packed_a_alloc)
-                avx_free(packed_b_alloc)
 
         assert isinstance(matmul_kernel_x86, hidet.ir.Function)
         matmul_kernel_x86.kind = "cpu_kernel"
