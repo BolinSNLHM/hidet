@@ -18,7 +18,7 @@ def matmul_ansor(M, K, N, dtype):
         (M, N),
         lambda i, j: te.sum(A[i, k] * B[k, j], axis=k),
         name="matmul_ansor",
-        attrs={"layout_free_placeholders": [A, B]},        # Enable automatic layout transform for B TODO: What is this?
+        attrs={"layout_free_placeholders": [B]},        # Enable automatic layout transform for B TODO: What is this?
     )
 
     return [A, B, rst]
@@ -31,7 +31,9 @@ hidet.option.search_space(2)
 hidet.option.cache_dir("./cache-branchISfused-realistic-inputs")
 hidet.option.parallel_build(True)
 # for m, k, n in [(1024, 768, 3072), (1024, 768, 768)]:
-for m, n, k in [(128, 768, 768), (1024, 768, 3072), (1024, 768, 768)]:
+# for m, n, k in [(128, 768, 768), (1024, 768, 3072), (1024, 768, 768)]:
+# for m, n, k in [(128, 768, 768)]:
+for m, n, k in [(768, 768, 768), (1024, 768, 768), (128, 3072, 768)]:
     a = hidet.randn([m, k], device='cpu')
     b = hidet.randn([k, n], device='cpu')
     x1 = hidet.symbol_like(a)
@@ -65,18 +67,18 @@ for m, n, k in [(128, 768, 768), (1024, 768, 3072), (1024, 768, 768)]:
     )
 
     ansor_task = tvm.auto_scheduler.SearchTask(func=matmul_ansor, args=(m, k, n, "float32"), target=target)
-    log_file = f"AB-matmul_{m}x{k}x{k}.json"
-    tune_option = auto_scheduler.TuningOptions(
-        num_measure_trials=1000,
-        measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
-        verbose=2,
-    )
-
-    ansor_task.tune(tune_option)
+    log_file = f"./temps/AB-matmul_{m}x{k}x{n}.json"
+    # tune_option = auto_scheduler.TuningOptions(
+    #     num_measure_trials=1000,
+    #     measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
+    #     verbose=2,
+    # )
+    #
+    # ansor_task.tune(tune_option)
     sch, args = ansor_task.apply_best(log_file)
 
-    with open(f"./matmul_AB_TIR_{m}x{k}x{n}", 'w') as f:
-        f.write(str(tvm.lower(sch, args, simple_mode=True)))
+    with open(f"./temps/script-matmul_AB_TIR_{m}x{k}x{n}", 'w') as f:
+        f.write(str(tvm.lower(sch, args, simple_mode=True).script()))
     ansor_func = tvm.build(sch, args, target)
     dev = tvm.cpu()
     a_tvm = tvm.nd.array(a.numpy(), device=dev)
@@ -96,7 +98,7 @@ for m, n, k in [(128, 768, 768), (1024, 768, 3072), (1024, 768, 768)]:
         lambda: ansor_func(a_tvm, b_tvm, c_tvm), repeat=100
     )
 
-    with open(f"./perf-branchISfused-realistic-inputs.txt", 'a+') as f:
+    with open(f"./temps/perf-branchISfused-realistic-inputs.txt", 'a+') as f:
         f.write('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n\n')
         f.write(f'm={m}, k={k}, n={n}: hidet takes {hidet_latency:.2f} ms\n')
         f.write(f'm={m}, k={k}, n={n}: numpy takes {np_latency:.2f} ms\n')

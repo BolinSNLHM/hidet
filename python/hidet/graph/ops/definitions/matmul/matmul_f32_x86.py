@@ -112,7 +112,6 @@ class MatmulF32Taskx86(Task):
 
         tune.check(block_m % tile_m == block_n % tile_n == 0, 'Tile size must divide the corresponding block size')
 
-
         packing_parallel_attr = 'p' + str(nthreads_packing)
         if nthreads_packing == 1:
             packing_parallel_attr = None
@@ -129,282 +128,26 @@ class MatmulF32Taskx86(Task):
                 b_ptr = cast(b, ~float32)
                 c_ptr = cast(c, ~float32)
 
-                # packing
                 for ax0_ax1_fused_ax2_fused in grid(48, attrs=packing_parallel_attr):
-                    for ax4, ax6 in grid(64, 12):
-                        b_idx = ax4 * 9216 + ax6 * 768 + ax0_ax1_fused_ax2_fused * 16
-
+                    for ax4, ax5, ax6 in grid(192, 2, 4):
+                        b_idx = ax4 * 3072 + ax6 * 768 + ax0_ax1_fused_ax2_fused * 16 + ax5 * 8
                         v0 = avx_f32x8_load(b_ptr + b_idx)
-                        v8 = avx_f32x8_load(b_ptr + (b_idx + 8))
+                        avx_f32x8_store_aligned(
+                            packed_b_ptr + ax0_ax1_fused_ax2_fused * 12288 + ax4 * 64 + ax5 * 32 + ax6 * 8,
+                            v0)
 
-                        avx_f32x8_store_aligned(packed_b_ptr +
-                                                (ax0_ax1_fused_ax2_fused * 12288 + ax4 * 192 + ax6 * 16), v0)
-                        avx_f32x8_store_aligned(packed_b_ptr +
-                                                (ax0_ax1_fused_ax2_fused * 12288 + ax4 * 192 + ax6 * 16 + 8), v8)
+                for i_outer_outer_j_outer_outer_fused_i_outer_inner_fused_j_outer_inner_fused in grid(1536, attrs=parallel_attr):
+                    v0 = avx_f32x8_setzero()
+                    v1 = avx_f32x8_setzero()
+                    v2 = avx_f32x8_setzero()
+                    v3 = avx_f32x8_setzero()
+                    v4 = avx_f32x8_setzero()
+                    v5 = avx_f32x8_setzero()
+                    v6 = avx_f32x8_setzero()
+                    v7 = avx_f32x8_setzero()
 
-                # Main computation
-                for i_outer_outer_j_outer_outer_fused_i_outer_inner_fused in grid(512, attrs=parallel_attr):
-                    for j_outer_inner in range(3):
-                        v0 = avx_f32x8_setzero()
-                        v08 = avx_f32x8_setzero()
-                        v1 = avx_f32x8_setzero()
-                        v18 = avx_f32x8_setzero()
-                        v2 = avx_f32x8_setzero()
-                        v28 = avx_f32x8_setzero()
-                        v3 = avx_f32x8_setzero()
-                        v38 = avx_f32x8_setzero()
-
-                        for k_outer in range(64):
-                            cse_var_13 = i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + k_outer * 12
-                            cse_var_12 = i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 36864 + j_outer_inner * 12288 + k_outer * 192
-                            cse_var_11 = cse_var_12 + 96
-                            cse_var_10 = cse_var_12 + 80
-                            cse_var_9 = cse_var_12 + 64
-                            cse_var_8 = cse_var_12 + 48
-                            cse_var_7 = cse_var_12 + 32
-                            cse_var_6 = cse_var_12 + 176
-                            cse_var_5 = cse_var_12 + 160
-                            cse_var_4 = cse_var_12 + 16
-                            cse_var_3 = cse_var_12 + 144
-                            cse_var_2 = cse_var_12 + 128
-                            cse_var_1 = cse_var_12 + 112
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_12)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_12 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + cse_var_13),
-                                                 bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + cse_var_13),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 768)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 768)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1536)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1536)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2304)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2304)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_4)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_4 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 769)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 769)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1537)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1537)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2305)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2305)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_7)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_7 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 770)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 770)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1538)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1538)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2306)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2306)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_8)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_8 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 3)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 3)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 771)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 771)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1539)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1539)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2307)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2307)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_9)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_9 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 4)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 4)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 772)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 772)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1540)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1540)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2308)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2308)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_10)
-                            bb8 = avx_f32x8_load(packed_b_ptr + cse_var_10 + 8)
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 5)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 5)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 773)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 773)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1541)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1541)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2309)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2309)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_11)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_11 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 6)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 6)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 774)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 774)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1542)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1542)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2310)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2310)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_1)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_1 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 7)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 7)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 775)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 775)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1543)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1543)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2311)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2311)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_2)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_2 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 8)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 8)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 776)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 776)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1544)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1544)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2312)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2312)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_3)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_3 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 9)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 9)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 777)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 777)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1545)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1545)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2313)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2313)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_5)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_5 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 10)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 10)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 778)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 778)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1546)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1546)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2314)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2314)),
-                                                    bb8)
-
-                            bb0 = avx_f32x8_load(packed_b_ptr + cse_var_6)
-                            bb8 = avx_f32x8_load(packed_b_ptr + (cse_var_6 + 8))
-                            v0 = avx_f32x8_fmadd(v0, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 11)),
-                                                    bb0)
-                            v08 = avx_f32x8_fmadd(v08, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 11)),
-                                                    bb8)
-                            v1 = avx_f32x8_fmadd(v1, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 779)),
-                                                    bb0)
-                            v18 = avx_f32x8_fmadd(v18, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 779)),
-                                                    bb8)
-                            v2 = avx_f32x8_fmadd(v2, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1547)),
-                                                    bb0)
-                            v28 = avx_f32x8_fmadd(v28, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 1547)),
-                                                    bb8)
-                            v3 = avx_f32x8_fmadd(v3, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2315)),
-                                                    bb0)
-                            v38 = avx_f32x8_fmadd(v38, avx_f32x8_broadcast(a_ptr + (cse_var_13 + 2315)),
-                                                    bb8)
-
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 0 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v0)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 0 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v08)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 1 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v1)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 1 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v18)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 2 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v2)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 2 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v28)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 3 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16), v3)
-                        avx_f32x8_store(c_ptr + (i_outer_outer_j_outer_outer_fused_i_outer_inner_fused % 32 * 3072 + 3 * 768 + i_outer_outer_j_outer_outer_fused_i_outer_inner_fused // 32 * 48 + j_outer_inner * 16 + 8), v38)
+                    for k_outer, i_c_outer_inner, j_c_outer_inner, k_inner in grid(192, 4, 2, 4):
+                        cse_var_1 = i_c_outer_inner * 16 + j_c_outer_inner * 8
 
 
         assert isinstance(matmul_kernel_x86, hidet.ir.Function)
