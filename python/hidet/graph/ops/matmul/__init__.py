@@ -13,6 +13,6 @@ from .matmul import matmul, MatmulOp, MatmulTask
 from .batch_matmul import batch_matmul, BatchMatmulOp, BatchMatmulTask
 from . import resolve
 
-from .matmul_f32_x86 import matmul_x86
+from .matmul_f32_x86 import matmul_f32_x86
 
-from .matmul_f32_x86 import MatmulF32Taskx86, Matmulx86Op
+from .matmul_f32_x86 import MatmulF32Taskx86, MatmulF32x86Op

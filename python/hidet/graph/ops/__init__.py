@@ -24,7 +24,7 @@ from .conv2d import (
 from .conv2d_transpose import conv2d_transpose, conv2d_transpose_gemm
 from .conv3d import conv3d, conv3d_gemm
 from .conv3d_transpose import conv3d_transpose
-from .matmul import batch_matmul, matmul, matmul_x86
+from .matmul import batch_matmul, matmul, matmul_f32_x86
 from .pool import avg_pool2d, avg_pool3d, adaptive_avg_pool1d, adaptive_avg_pool2d, adaptive_avg_pool3d
 from .pool import max_pool2d, max_pool3d, adaptive_max_pool1d, adaptive_max_pool2d, adaptive_max_pool3d
 from .activation import relu, leaky_relu, sigmoid, hardsigmoid, clip, relu6, prelu, gelu, silu, hardswish

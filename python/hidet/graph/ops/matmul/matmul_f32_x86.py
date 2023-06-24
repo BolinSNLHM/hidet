@@ -436,7 +436,7 @@ class MatmulF32Taskx86(Task):
         return ir_module
 
 
-class Matmulx86Op(Operator):
+class MatmulF32x86Op(Operator):
     def __init__(self, a: Tensor, b: Tensor):
         if not (len(a.shape) == len(b.shape) == 2 and a.shape[1] == b.shape[0]):
             raise ValueError('Matrix multiplication: incompatible sizes: {} and {}'.format(a.shape, b.shape))
@@ -444,5 +444,5 @@ class Matmulx86Op(Operator):
         super().__init__(inputs=[a, b], attributes={}, task=task)
 
 
-def matmul_x86(a: Tensor, b: Tensor) -> Tensor:
-    return Matmulx86Op(a, b).get_output(0)
+def matmul_f32_x86(a: Tensor, b: Tensor) -> Tensor:
+    return MatmulF32x86Op(a, b).get_output(0)

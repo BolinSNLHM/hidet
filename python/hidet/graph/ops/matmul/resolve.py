@@ -23,6 +23,7 @@ from hidet.utils.py import gcd, factorize, prod, cdiv
 from .matmul import MatmulOp
 from .batch_matmul import batch_matmul
 from .matmul_f16 import matmul_f16
+from .matmul_f32_x86 import matmul_f32_x86
 from ..transform import broadcast, flatten
 from ..utils import broadcast_shapes
 
@@ -234,8 +235,28 @@ class MatmulResolveRule(ResolveRule):
         c = matmul_f16(a, b, parallel_k_parts=k_parts).sum(0)
         return [c]
 
+    def resolve_f32_x86(self, op: Operator) -> Optional[List[Tensor]]:
+        a: Tensor = op.inputs[0]
+        b: Tensor = op.inputs[1]
+        c: Tensor = op.outputs[0]
+
+        if not (
+            a.dtype == dtypes.float32
+            and b.dtype == dtypes.float32
+            and is_constant(a.shape[-1], b.shape[-1])
+        ):
+            return None
+        c = matmul_f32_x86(a, b)
+        return [c]
+
+
     def resolve(self, op: Operator) -> Optional[List[Tensor]]:
         if op.device.is_cpu():
+            resolve_funcs: List[Callable[[Operator], Any]] = [self.resolve_f32_x86]
+            for resolve_func in resolve_funcs:
+                outs = resolve_func(op)
+                if outs is not None:
+                    return outs
             return None
         resolve_funcs: List[Callable[[Operator], Any]] = [self.resolve_f16, self.resolve_generic]
         for resolve_func in resolve_funcs:
