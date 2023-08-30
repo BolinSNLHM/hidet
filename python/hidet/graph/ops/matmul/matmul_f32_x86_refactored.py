@@ -532,7 +532,7 @@ class MatmulF32Taskx86_refactored(Task):
                     loop4_partition_b_width: int32,
                     loop4_partition_b_height: int32,
                     packed_b_buf: ~float32,
-                    comm_id_packb: int32, workn_id_packb: int32,
+                    comm_id_packb: int32, work_id_packb: int32,
                     packb_nways: int32
             ):
                 # printf("The start of pack B, comm_id_packb: %d, work_id_packb: %d\n", comm_id_packb, work_id_packb)
