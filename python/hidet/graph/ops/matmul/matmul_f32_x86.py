@@ -14,6 +14,7 @@ from hidet.ir.dtypes import float32, int32
 from hidet.ir.expr import cast
 from hidet.ir.module import IRModule
 from hidet.ir.compute import TensorNode
+from hidet.ir.primitives import printf
 from hidet.ir.stmt import DeclareScope
 from hidet.ir.task import Task
 from hidet.ir.compute import compute, reduce
@@ -82,8 +83,8 @@ class MatmulF32Taskx86(Task):
         return tune.extract_ir_modules(self.schedule_matmulf32_x86)
 
     # @tune.space(1, MC=[2016], NC=[256, 384, 512], KC=[384, 512, 560], ways=[(1, 4, 2, 1)])
-    @tune.space(2, MC=[144, 288, 432, 576, 720], NC=[2400, 3200], KC=[256, 560, 768, 384], ways=[(1, 4, 2, 1), (2, 4, 4, 1), (1, 4, 4, 1), (1, 2, 4, 2), (1, 4, 4, 2), (2, 4, 2, 2) ])
-    def schedule_matmulf32_x86(self, MC=2016, NC=384, KC=560, ways=(1, 4, 2, 1)) -> IRModule:
+    @tune.space(2, MC=[144, 288, 432, 576, 720], NC=[800], KC=[256, 560, 768, 384], ways=[(1, 4, 2, 1), (2, 4, 4, 1), (1, 4, 4, 1), (1, 2, 4, 2), (1, 4, 4, 2), (2, 4, 2, 2) ])
+    def schedule_matmulf32_x86(self, MC=720, NC=800, KC=560, ways=(2, 4, 4, 1)) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
         from hidet.lang import tensor, grid, as_tensor_pointer
@@ -835,6 +836,9 @@ class MatmulF32Taskx86(Task):
 
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
+
+                # printf("MC: %d, NC: %d, KC: %d, loop5_nways: %d, loop3_nways: %d, macro_nways: %d\n",
+                #        MC, NC, KC, loop5_nways, loop3_nways, macro_nways)
 
                 parallel_attr = 'p' + str(nthreads)
                 # The outermost loop spawning threads
