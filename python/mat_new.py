@@ -36,8 +36,8 @@ hidet.option.search_space(2)
 np.random.seed(42)
 # for m, k, n in [(1024, 1024, 1024), (4096, 4096, 4096), (32, 11008, 4096), (32, 4096, 11008)]:
 # for m, k, n in [(1024, 1024, 1024), (32, 11008, 4096), (4096, 4096, 4096)]:
-# for m, k, n in [(1024, 1024, 1024), (4096, 4096, 4096), (32, 11008, 4096), (32, 4096, 11008), (1, 4096, 11008), (1, 1024, 1024)]:
-for m, k, n in [(1024, 1024, 1024)]:
+for m, k, n in [(1024, 1024, 1024), (4096, 4096, 4096), (32, 11008, 4096), (32, 4096, 11008), (1, 4096, 11008), (1, 1024, 1024)]:
+# for m, k, n in [(1024, 1024, 1024)]:
 # for m, k, n in [(4096, 4096, 4096)]:
     a_torch = torch.randn([m, k], device='cpu')
     b_torch = torch.randn([k, n], device='cpu')
@@ -140,7 +140,7 @@ for m, k, n in [(1024, 1024, 1024)]:
             lambda: ansor_func(a_tvm, b_tvm, c_tvm), repeat=30
         )
     #
-        with open(f"./perf_{m}x{k}x{n}.txt", 'w') as f:
+        with open(f"./perf_{m}x{k}x{n}-NEW.txt", 'w') as f:
             f.write(f"m={m}, k={k}, n={n}: hidet takes {hidet_latency:.2f} ms\n")
             f.write(f"m={m}, k={k}, n={n}: ansor takes {ansor_latency: .2f} ms\n")
             f.write(f"m={m}, k={k}, n={n}: torch takes {torch_latency: .2f} ms\n")
