@@ -16,3 +16,5 @@ from . import resolve
 
 from .matmul_f32_x86 import Matmulx86Op, MatmulF32Taskx86
 from .matmul_f32_x86 import matmul_x86
+from .batch_matmul_f32_x86 import BatchMatmulx86Op, BatchMatmulF32Taskx86
+from .batch_matmul_f32_x86 import batch_matmul_x86

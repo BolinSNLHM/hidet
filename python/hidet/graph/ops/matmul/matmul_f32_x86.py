@@ -83,7 +83,7 @@ class MatmulF32Taskx86(Task):
         return tune.extract_ir_modules(self.schedule_matmulf32_x86)
 
     # @tune.space(1, MC=[2016], NC=[256, 384, 512], KC=[384, 512, 560], ways=[(1, 4, 2, 1)])
-    @tune.space(2, MC=[144, 288, 432, 576, 720], NC=[800], KC=[256, 560, 768, 384], ways=[(1, 4, 2, 1), (2, 4, 4, 1), (1, 4, 4, 1), (1, 2, 4, 2), (1, 4, 4, 2), (2, 4, 2, 2) ])
+    @tune.space(2, MC=[96, 128, 144, 576, 720], NC=[800], KC=[384, 256, 560, 576, 768], ways=[(2, 4, 4, 1), (2, 2, 4, 2), (2, 8, 1, 2), (2, 4, 2, 2), (2, 8, 2, 1), (4, 8, 1, 1)])
     def schedule_matmulf32_x86(self, MC=720, NC=800, KC=560, ways=(2, 4, 4, 1)) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
