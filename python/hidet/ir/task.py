@@ -13,6 +13,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Union, Callable, Optional, Tuple
 import os
+import enum
 import pickle
 from hidet.ir.node import Node
 from hidet.ir.type import FuncType, VoidType
@@ -127,7 +128,7 @@ class Task(Node):
 
         # check all TensorInput used in outputs are placed in inputs
         used_inputs = collect(self.outputs, TensorInput)
-        if any(x not in self.inputs for x in used_inputs):
+        if any(x not in self.inputs + self.outputs for x in used_inputs):
             raise ValueError('Some TensorInput used in outputs are not placed in inputs: {}'.format(used_inputs))
 
         # check assertions for correctness
@@ -147,7 +148,11 @@ class Task(Node):
             dtype = tensor.type.dtype.name
             params.append('{}={}{}'.format(name, dtype, tensor.type.shape))
         for name, value in self.attrs.items():
-            params.append('{}={}'.format(name, repr(value)))
+            if isinstance(value, enum.Enum):
+                value_str = value.name
+            else:
+                value_str = repr(value)
+            params.append('{}={}'.format(name, value_str))
         param_doc = ', '.join(params)
         fuse_doc = ''
         return ''.join([self.name, '(', param_doc, ')', fuse_doc])
