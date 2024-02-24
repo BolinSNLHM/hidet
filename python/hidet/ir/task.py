@@ -13,6 +13,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Union, Callable, Optional, Tuple
 import os
+import enum
 import pickle
 from hidet.ir.node import Node
 from hidet.ir.type import FuncType, VoidType
@@ -68,17 +69,50 @@ class InverseMap(Node):
 class Task(Node):
     """
     A task defines the operator computation.
+
+    Attributes
+    ----------
+    name: str
+        The name of the task.
+
+    inputs: List[TensorInput]
+        The input tensors of this task.
+
+    outputs: List[TensorNode]
+        The output tensors of this task. They are derived by applying computation on the input tensors.
+
+    inverse_map: Dict[TensorInput, InverseMap]
+        The inverse map. It records how the input tensors are derived from the output tensor (when there is only one
+        output tensor). This is used to support epilogue fusion.
+
+    attrs: Dict[str, Union[str, float, int, bool]]
+        The attributes of this task.
+
+    assertions: List[Tuple[Expr, Optional[str]]]
+        The assertions of this task. Each assertion is a tuple of an expression and an optional message. The
+        expression is evaluated at runtime. If the expression is not true, the program will abort and print the
+        message.
+
+    share_map: Dict[int, int]
+        The share map. If one output tensor shares memory with one input tensor, it is specified in this map. For
+        example, `share_map = {0: 0, 1: 2}` means that the output tensor 0 shares the memory with input tensor 0, and
+        output tensor 1 shares the memory with input tensor 2.
+
+    symbols: List[SymbolVar]
+        The list of symbols used in this task.
     """
 
-    def __init__(self, name, inputs, outputs, *, inverse_map=None, attributes=None):
+    def __init__(self, name, inputs, outputs, *, inverse_map=None, attributes=None, share_map=None):
         inverse_map = inverse_map if inverse_map else {}
         attributes = attributes if attributes else {}
+        share_map = share_map if share_map else {}
         self.name: str = name
         self.inputs: List[TensorInput] = list(inputs)
         self.outputs: List[TensorNode] = list(outputs)
         self.inverse_map: Dict[TensorInput, InverseMap] = {a: InverseMap.from_obj(b) for a, b in inverse_map.items()}
         self.attrs: Dict[str, Union[str, float, int, bool]] = attributes
         self.assertions: List[Tuple[Expr, Optional[str]]] = getattr(self, 'assertions', [])
+        self.share_map: Dict[int, int] = share_map
 
         from hidet.ir.tools import collect
 
@@ -127,7 +161,7 @@ class Task(Node):
 
         # check all TensorInput used in outputs are placed in inputs
         used_inputs = collect(self.outputs, TensorInput)
-        if any(x not in self.inputs for x in used_inputs):
+        if any(x not in self.inputs + self.outputs for x in used_inputs):
             raise ValueError('Some TensorInput used in outputs are not placed in inputs: {}'.format(used_inputs))
 
         # check assertions for correctness
@@ -147,7 +181,11 @@ class Task(Node):
             dtype = tensor.type.dtype.name
             params.append('{}={}{}'.format(name, dtype, tensor.type.shape))
         for name, value in self.attrs.items():
-            params.append('{}={}'.format(name, repr(value)))
+            if isinstance(value, enum.Enum):
+                value_str = value.name
+            else:
+                value_str = repr(value)
+            params.append('{}={}'.format(name, value_str))
         param_doc = ', '.join(params)
         fuse_doc = ''
         return ''.join([self.name, '(', param_doc, ')', fuse_doc])

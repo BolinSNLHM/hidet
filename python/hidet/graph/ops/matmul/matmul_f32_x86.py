@@ -14,7 +14,6 @@ from hidet.ir.dtypes import float32, int32
 from hidet.ir.expr import cast
 from hidet.ir.module import IRModule
 from hidet.ir.compute import TensorNode
-from hidet.ir.primitives import printf
 from hidet.ir.stmt import DeclareScope
 from hidet.ir.task import Task
 from hidet.ir.compute import compute, reduce
@@ -836,9 +835,6 @@ class MatmulF32Taskx86(Task):
 
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
-
-                # printf("MC: %d, NC: %d, KC: %d, loop5_nways: %d, loop3_nways: %d, macro_nways: %d\n",
-                #        MC, NC, KC, loop5_nways, loop3_nways, macro_nways)
 
                 parallel_attr = 'p' + str(nthreads)
                 # The outermost loop spawning threads

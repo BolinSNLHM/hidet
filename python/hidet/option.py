@@ -11,7 +11,9 @@
 # limitations under the License.
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Callable, Iterable, Tuple, Union
+import warnings
 import os
+import subprocess
 import tomlkit
 
 
@@ -191,10 +193,18 @@ def register_hidet_options():
         choices=[True, False],
     )
     register_option(
+        name='debug_enable_var_id',
+        type_hint='bool',
+        default_value=False,
+        description='Assign a variable id to each variable in the IR. If set to false, all variable IDs will be 0',
+        choices=[True, False],
+    )
+    register_option(
         name='debug_show_var_id',
         type_hint='bool',
         default_value=False,
-        description='Whether to show the variable id in the IR.',
+        description='Whether to show the variable id in the IR.\
+                     Hint: all variable ids will be 0 unless the debug_enable_var_id option is set to True.',
         choices=[True, False],
     )
     register_option(
@@ -258,6 +268,18 @@ def register_hidet_options():
         description='The CUDA architecture to compile the kernels for (e.g., "sm_70"). "auto" for auto-detect.',
     )
     register_option(
+        name='cuda.cpu_arch',
+        type_hint='str',
+        default_value='auto',
+        description='The CPU architecture to compile the host code for (e.g., "x86-64"). "auto" for auto-detect.',
+    )
+    register_option(
+        name='cpu.arch',
+        type_hint='str',
+        default_value='auto',
+        description='The CPU architecture to compile the kernels for (e.g., "x86-64"). "auto" for auto-detect.',
+    )
+    register_option(
         name='imperative',
         type_hint='bool',
         default_value=True,
@@ -310,6 +332,14 @@ class OptionContext:
 
     @staticmethod
     def current() -> OptionContext:
+        """
+        Get the current option context.
+
+        Returns
+        -------
+        ret: OptionContext
+            The current option context.
+        """
         return OptionContext.stack[-1]
 
     def load_from_file(self, config_path: str):
@@ -328,6 +358,17 @@ class OptionContext:
                 self.set_option(entry_name, value)
 
     def set_option(self, name: str, value: Any):
+        """
+        Set the value of an option in the self option context.
+
+        Parameters
+        ----------
+        name: str
+            The name of the option.
+
+        value: Any
+            The value of the option.
+        """
         if name not in OptionRegistry.registered_options:
             raise KeyError(f'Option {name} has not been registered.')
         registry = OptionRegistry.registered_options[name]
@@ -342,6 +383,19 @@ class OptionContext:
         self.options[name] = value
 
     def get_option(self, name: str) -> Any:
+        """
+        Get the value of an option in the self option context.
+
+        Parameters
+        ----------
+        name: str
+            The name of the option.
+
+        Returns
+        -------
+        ret: Any
+            The value of the option.
+        """
         for ctx in reversed(OptionContext.stack):
             if name in ctx.options:
                 return ctx.options[name]
@@ -361,7 +415,7 @@ def dump_options() -> Dict[str, Any]:
     Returns
     -------
     ret: Dict[str, Any]
-        The dumped options.
+        The dumped options, as a dict.
     """
     return {'option_context_stack': OptionContext.stack, 'registered_options': OptionRegistry.registered_options}
 
@@ -701,6 +755,21 @@ def debug_cache_tuning(enabled: bool = True):
     OptionContext.current().set_option('debug_cache_tuning', enabled)
 
 
+def debug_enable_var_id(enable: bool = True):
+    """
+    Whether to enable var id in the IR.
+
+    When this option is enabled, each variable (i.e., hidet.ir.Var) will have a unique id.
+    Otherwise, each variable's ID will be 0.
+
+    Parameters
+    ----------
+    enable: bool
+        Whether to enable var id in the IR.
+    """
+    OptionContext.current().set_option('debug_enable_var_id', enable)
+
+
 def debug_show_var_id(enable: bool = True):
     """
     Whether to show the var id in the IR.
@@ -713,6 +782,8 @@ def debug_show_var_id(enable: bool = True):
     enable: bool
         Whether to show the var id in the IR.
     """
+    if not OptionContext.current().get_option('debug_enable_var_id'):
+        warnings.warn("Please use `hidet.option.debug_enable_var_id()` to enable the id first")
     OptionContext.current().set_option('debug_show_var_id', enable)
 
 
@@ -776,6 +847,10 @@ def debug_show_verbose_flow_graph(enable: bool = True):
 
 
 class cuda:
+    """
+    The CUDA related options.
+    """
+
     @staticmethod
     def arch(arch: str = 'auto'):
         """
@@ -822,33 +897,142 @@ class cuda:
         return int(arch[3]), int(arch[4])
 
 
+class cpu:
+    """
+    The CPU related options.
+    """
+
+    @staticmethod
+    def arch(arch: str = 'auto'):
+        """
+        Set the CPU architecture to use when building CPU kernels.
+
+        Parameters
+        ----------
+        arch: Optional[str]
+            The CPU architecture, e.g., 'x86-64', 'alderlake', etc. "auto" means
+            using the architecture of the CPU on the current machine. Default "auto".
+        """
+        OptionContext.current().set_option('cpu.arch', arch)
+
+    @staticmethod
+    def get_arch() -> str:
+        """
+        Get the CPU architecture to use when building CPU kernels.
+
+        Returns
+        -------
+        ret: str
+            The CPU architecture, e.g., 'x86-64', 'alderlake', etc.
+        """
+        arch: Optional[str] = OptionContext.current().get_option('cpu.arch')
+        if arch == "auto":
+            cmd = ['gcc', '-march=native', '-Q', '--help=target']
+            out = subprocess.check_output(cmd, text=True)
+            begin = out.find('march=') + len('march=')
+            end = out.find('\n', begin)
+            arch = out[begin:end].strip()
+        return arch
+
+
 class compile_server:
+    """
+    Compilation server related options.
+    """
+
     @staticmethod
     def addr(addr: str):
+        """
+        Set the address of the compile server.
+
+        Parameters
+        ----------
+        addr: str
+            The address of the compile server. Can be an IP address or a domain name.
+        """
         OptionContext.current().set_option('compile_server.addr', addr)
 
     @staticmethod
     def port(port: int):
+        """
+        Set the port of the compile server.
+
+        Parameters
+        ----------
+        port: int
+            The port of the compile server.
+        """
         OptionContext.current().set_option('compile_server.port', port)
 
     @staticmethod
     def enable(flag: bool = True):
+        """
+        Enable or disable the compile server.
+
+        The compile server is disabled by default. We need to enable it before using it.
+
+        Parameters
+        ----------
+        flag: bool
+            Whether to enable the compile server.
+        """
         OptionContext.current().set_option('compile_server.enabled', flag)
 
     @staticmethod
     def enabled() -> bool:
+        """
+        Get whether the compile server is enabled.
+
+        Returns
+        -------
+        ret: bool
+            Whether the compile server is enabled.
+        """
         return OptionContext.current().get_option('compile_server.enabled')
 
     @staticmethod
     def username(username: str):
+        """
+        Set the username to access the compile server.
+
+        Parameters
+        ----------
+        username: str
+            The username to access the compile server.
+        """
         OptionContext.current().set_option('compile_server.username', username)
 
     @staticmethod
     def password(password: str):
+        """
+        Set the password to access the compile server.
+
+        Parameters
+        ----------
+        password: str
+            The password to access the compile server.
+        """
         OptionContext.current().set_option('compile_server.password', password)
 
     @staticmethod
     def repo(repo_url: str, version: str = 'main'):
+        """
+        Set the repository that the remote server will use.
+
+        When we compile a tensor program with remote server, it will clone the given repository and checkout to the
+        given version. Then, it will use the code in the repository to compile the tensor program. Thus, it is
+        important to make sure the code in the repository is consistent with the code used to compile the tensor
+        program.
+
+        Parameters
+        ----------
+        repo_url: str
+            The URL of the repository that the remote server will use. By default, it is the official repository
+            of hidet https://github.com/hidet-org/hidet.
+        version: str
+            The version (e.g., branch, commit, or tag) that the remote server will use. By default, it is the main
+            branch: 'main'.
+        """
         OptionContext.current().set_option('compile_server.repo_url', repo_url)
         OptionContext.current().set_option('compile_server.repo_version', version)
 

@@ -35,12 +35,38 @@ class TaskMetaData:
     symbols: List[str]
     inputs: List[TensorSignature]
     outputs: List[TensorSignature]
+    share_map: Dict[int, int]
     target: str
     num_candidates: int
     hidet_version: str
 
 
 class CompiledTask:
+    """
+    A compiled task is a special kind of compiled module that implements a computation task.
+
+    A compiled task is a compiled module with the following conventions:
+
+    1. The compiled module contains functions named `launch_0`, `launch_1`, ..., `launch_N-1`, where N is the number of
+       candidates for the task.
+    2. There are two shape-related functions `get_input_shape` and `get_output_shape` that return the shape of inputs
+       and outputs respectively.
+
+    When a compiled task is called, the input arguments should be consistent with the input signature of the task.
+    The compiled task will pick the best candidate based on the input shapes and dispatch the computation to the
+    corresponding candidate. The output tensors will be created and passed to the candidate function as arguments.
+    When the candidate finishes the execution, the output tensors will be returned.
+
+    This class is not intended to be instantiated by users directly. Instead, users should use the
+    :func:`load_compiled_task` function to load a compiled task from the given directory, or use
+    :func:`hidet.drivers.build_task` to build a compiled task from a task definition.
+
+    Parameters
+    ----------
+    task_dir: str
+        The directory of the compiled task.
+    """
+
     def __init__(self, task_dir: str):
         self.task_dir: str = task_dir
         self.meta_data: TaskMetaData = self._load_meta_data()
@@ -54,6 +80,20 @@ class CompiledTask:
         self._get_output_shape = self.task_module['get_output_shape']
 
     def __call__(self, *args):
+        """
+        Run the compiled task with the given arguments.
+
+        Parameters
+        ----------
+        args: a sequence of input tensors or scalars
+            The input arguments. They should be consistent with the input signature of the task.
+
+        Returns
+        -------
+        A sequence of output tensors:
+            The output tensors. They are created by the task and passed to the candidate function as arguments.
+            When the candidate finishes the execution, the output tensors will be returned.
+        """
         outs = self.run_async(args)
         if len(outs) == 1:
             return outs[0]
@@ -103,7 +143,7 @@ class CompiledTask:
     def _get_symbol_values(self) -> Tuple[int, ...]:
         return tuple(runtime_api.get_symbol_value(symbol) for symbol in self.meta_data.symbols)
 
-    def create_outputs(self):
+    def create_outputs(self, inputs):
         import hidet
 
         outputs = []
@@ -112,7 +152,16 @@ class CompiledTask:
             shape_buffer = Array(i32, len(sig.shape))
             self._get_output_shape(idx, shape_buffer)
             shape: List[int] = list(shape_buffer)
-            outputs.append(hidet.empty(shape, sig.dtype, sig.device))
+            if idx not in self.meta_data.share_map:
+                outputs.append(hidet.empty(shape, sig.dtype, sig.device))
+            else:
+                input_tensor = hidet.Tensor(
+                    shape=shape,
+                    dtype=sig.dtype,
+                    device=sig.device,
+                    storage=inputs[self.meta_data.share_map[idx]].storage,
+                )
+                outputs.append(input_tensor)
         return outputs
 
     def pick_best_candidate(self, inputs, outputs) -> int:
@@ -171,12 +220,26 @@ class CompiledTask:
         return candidate_index
 
     def run_async(self, inputs):
+        """
+        Run the compiled task with the given arguments.
+
+        Parameters
+        ----------
+        inputs: a sequence of input tensors or scalars
+            The input arguments. They should be consistent with the input signature of the task.
+
+        Returns
+        -------
+        A sequence of output tensors:
+            The output tensors. They are created by the task and passed to the candidate function as arguments.
+            When the candidate finishes the execution, the output tensors will be returned.
+        """
         from hidet import option
 
         if option.get_runtime_check():
             _check_inputs(self.meta_data.inputs, inputs)
 
-        outputs = self.create_outputs()
+        outputs = self.create_outputs(inputs)
 
         candidate = self.candidates[self.pick_best_candidate(inputs, outputs)]
         candidate(*inputs, *outputs)
@@ -184,6 +247,28 @@ class CompiledTask:
         return outputs
 
     def profile(self, *args, warmup=1, number=2, repeat=10):
+        """
+        Run the compiled task with the given arguments and profile the execution time.
+
+        Parameters
+        ----------
+        args: a sequence of input tensors or scalars
+            The input arguments. They should be consistent with the input signature of the task.
+
+        warmup: int
+            The number of warmup runs.
+
+        number: int
+            The number of runs for each measurement.
+
+        repeat: int
+            The number of measurements.
+
+        Returns
+        -------
+        latency: List[float]
+            The measured latency in milliseconds. The length of the list is equal to `repeat`.
+        """
         num_outputs = len(self.meta_data.outputs)
         inputs = args[:num_outputs]
         outputs = args[num_outputs:]
@@ -192,6 +277,19 @@ class CompiledTask:
 
 
 def load_compiled_task(compiled_task_dir: str) -> CompiledTask:
+    """
+    Load a compiled task from the given directory.
+
+    Parameters
+    ----------
+    compiled_task_dir: str
+        The directory of the compiled task.
+
+    Returns
+    -------
+    ret: CompiledTask
+        The loaded compiled task.
+    """
     return CompiledTask(compiled_task_dir)
 
 

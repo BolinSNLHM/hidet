@@ -57,6 +57,7 @@ class ResolveRuleChain:
         # apply rules in reverse order, so that the latest rule has the highest priority
         for rule in reversed(self.rules):
             outs = rule.resolve(op)
+            print(rule, outs)
             if outs is not None:
                 return outs
         return None
