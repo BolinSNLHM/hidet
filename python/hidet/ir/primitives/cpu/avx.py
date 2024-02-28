@@ -217,8 +217,6 @@ def avx_f32x8_insert_f32x4(a: Expr, b: Expr, imm: Union[int, Expr]) -> Call:
 
 def avx_f32x8_permute2f32x4(a: Expr, b: Expr, imm: Union[int, Expr]) -> Call:
     return call_primitive_func('avx_x86_float32x8_permute2float32x4', [a, b, imm])
-<<<<<<< HEAD
-=======
 
 
 def avx_f32x8_permute(a: Expr, imm: Union[int, Expr]) -> Call:
@@ -235,4 +233,3 @@ def avx_f32x4_extract_last(a: Expr) -> Call:
 
 def avx_f32x8_extract_last(a: Expr) -> Call:
     return call_primitive_func('avx_x86_float32x8_extract_last', [a])
->>>>>>> main
