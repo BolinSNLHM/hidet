@@ -14,6 +14,7 @@ from hidet.ir.dtypes import float32, int32
 from hidet.ir.expr import cast
 from hidet.ir.module import IRModule
 from hidet.ir.compute import TensorNode
+from hidet.ir.primitives import printf
 from hidet.ir.stmt import DeclareScope
 from hidet.ir.task import Task
 from hidet.ir.compute import compute, reduce
@@ -278,33 +279,69 @@ class MatmulF32Taskx86(Task):
                 a_ptr = cast(a, ~float32)
                 b_ptr = cast(b, ~float32)
 
+                printf("The elements in c0: %f %f %f %f %f %f %f %f\n", c[0, 0], c[0, 1], c[0, 2], c[0, 3], c[0, 4],
+                       c[0, 5], c[0, 6], c[0, 7])
+                printf("The elements in c08: %f %f %f %f %f %f %f %f\n", c[0, 8], c[0, 9], c[0, 10], c[0, 11], c[0, 12],
+                       c[0, 13], c[0, 14], c[0, 15])
+                printf("The elements in c1: %f %f %f %f %f %f %f %f\n", c[1, 0], c[1, 1], c[1, 2], c[1, 3], c[1, 4],
+                       c[1, 5], c[1, 6], c[1, 7])
+                printf("The elements in c18: %f %f %f %f %f %f %f %f\n", c[1, 8], c[1, 9], c[1, 10], c[1, 11], c[1, 12],
+                       c[1, 13], c[1, 14], c[1, 15])
+                printf("The elements in c2: %f %f %f %f %f %f %f %f\n", c[2, 0], c[2, 1], c[2, 2], c[2, 3], c[2, 4],
+                       c[2, 5], c[2, 6], c[2, 7])
+                printf("The elements in c28: %f %f %f %f %f %f %f %f\n", c[2, 8], c[2, 9], c[2, 10], c[2, 11], c[2, 12],
+                       c[2, 13], c[2, 14], c[2, 15])
+                printf("The elements in c3: %f %f %f %f %f %f %f %f\n", c[3, 0], c[3, 1], c[3, 2], c[3, 3], c[3, 4],
+                       c[3, 5], c[3, 6], c[3, 7])
+                printf("The elements in c38: %f %f %f %f %f %f %f %f\n", c[3, 8], c[3, 9], c[3, 10], c[3, 11], c[3, 12],
+                       c[3, 13], c[3, 14], c[3, 15])
+                printf("The elements in c4: %f %f %f %f %f %f %f %f\n", c[4, 0], c[4, 1], c[4, 2], c[4, 3], c[4, 4],
+                       c[4, 5], c[4, 6], c[4, 7])
+                printf("The elements in c48: %f %f %f %f %f %f %f %f\n", c[4, 8], c[4, 9], c[4, 10], c[4, 11], c[4, 12],
+                       c[4, 13], c[4, 14], c[4, 15])
+                printf("The elements in c5: %f %f %f %f %f %f %f %f\n", c[5, 0], c[5, 1], c[5, 2], c[5, 3], c[5, 4],
+                       c[5, 5], c[5, 6], c[5, 7])
+                printf("The elements in c58: %f %f %f %f %f %f %f %f\n", c[5, 8], c[5, 9], c[5, 10], c[5, 11], c[5, 12],
+                       c[5, 13], c[5, 14], c[5, 15])
+
                 for _ in range(pb):
                     bb0to7 = avx_f32x8_load_aligned(b_ptr)
                     bb8to15 = avx_f32x8_load_aligned(b_ptr + 8)
 
+                    printf("The elements in bb0to7: %f %f %f %f %f %f %f %f\n", b_ptr[0], b_ptr[1], b_ptr[2], b_ptr[3],
+                           b_ptr[4], b_ptr[5], b_ptr[6], b_ptr[7])
+                    printf("The elements in bb8to15: %f %f %f %f %f %f %f %f\n", b_ptr[8], b_ptr[9], b_ptr[10],
+                           b_ptr[11], b_ptr[12], b_ptr[13], b_ptr[14], b_ptr[15])
+
                     aa1 = avx_f32x8_broadcast(a_ptr)
                     c0 = avx_f32x8_fmadd(aa1, bb0to7, c0)
                     c08 = avx_f32x8_fmadd(aa1, bb8to15, c08)
+                    printf("aa1: %f\n", a_ptr[0])
 
                     aa2 = avx_f32x8_broadcast(a_ptr + 1)
                     c1 = avx_f32x8_fmadd(aa2, bb0to7, c1)
                     c18 = avx_f32x8_fmadd(aa2, bb8to15, c18)
+                    printf("aa2: %f\n", a_ptr[1])
 
                     aa3 = avx_f32x8_broadcast(a_ptr + 2)
                     c2 = avx_f32x8_fmadd(aa3, bb0to7, c2)
                     c28 = avx_f32x8_fmadd(aa3, bb8to15, c28)
+                    printf("aa3: %f\n", a_ptr[2])
 
                     aa4 = avx_f32x8_broadcast(a_ptr + 3)
                     c3 = avx_f32x8_fmadd(aa4, bb0to7, c3)
                     c38 = avx_f32x8_fmadd(aa4, bb8to15, c38)
+                    printf("aa4: %f\n", a_ptr[3])
 
                     aa5 = avx_f32x8_broadcast(a_ptr + 4)
                     c4 = avx_f32x8_fmadd(aa5, bb0to7, c4)
                     c48 = avx_f32x8_fmadd(aa5, bb8to15, c48)
+                    printf("aa5: %f\n", a_ptr[4])
 
                     aa6 = avx_f32x8_broadcast(a_ptr + 5)
                     c5 = avx_f32x8_fmadd(aa6, bb0to7, c5)
                     c58 = avx_f32x8_fmadd(aa6, bb8to15, c58)
+                    printf("aa6: %f\n", a_ptr[5])
 
                     a_ptr = a_ptr + 6
                     b_ptr = b_ptr + 16
@@ -466,7 +503,7 @@ class MatmulF32Taskx86(Task):
                 for i_panel in range(npanels_b):
                     if i_panel % packb_nthreads != work_id_packb % packb_nthreads:
                         continue
-                    packed_b_buff_curr = packed_b_buf + (i_panel * packedb_panel_stride)
+                    packed_b_buff_curr = cast(packed_b_buf, ~float32) + (i_panel * packedb_panel_stride)
                     curr_panel_start = i_panel * NR
                     curr_panel_width = min(NR, loop4_partition_b_width - curr_panel_start)
 
@@ -749,7 +786,7 @@ class MatmulF32Taskx86(Task):
                     loop4_partition_a_start_col = i_loop4
                     is_first = i_loop4 == 0
 
-                    packed_b_buf = packb_buf + (packed_b_individual_size * work_id_5th_loop)
+                    packed_b_buf: ~float32 = cast(packb_buf, ~float32) + (packed_b_individual_size * work_id_5th_loop)
 
                     loop4_partition_b = cast(b, ~float32) + (
                         loop4_partition_b_start_row * n_size + loop4_partition_b_start_col
@@ -843,8 +880,8 @@ class MatmulF32Taskx86(Task):
             ):
                 attrs.func_kind = 'cpu_kernel'
 
-                packed_b_buf = cast(request_cpu_workspace(packed_b_total_size), ~float32)
-                packed_a_buf = cast(request_cpu_workspace(packed_a_total_size), ~float32)
+                packed_b_buf = cast(request_cpu_workspace(packed_b_total_size * 4, True), ~float32)
+                packed_a_buf = cast(request_cpu_workspace(packed_a_total_size * 4, True), ~float32)
 
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
