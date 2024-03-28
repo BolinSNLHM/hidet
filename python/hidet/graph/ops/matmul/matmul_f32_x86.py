@@ -607,6 +607,8 @@ class MatmulF32Taskx86(Task):
                             row += 1
 
                     else:
+                        printf("In the edge part, npanels_full_b * packedb_panel_stride: %d\n",
+                               npanels_full_b * packedb_panel_stride)
                         packed_b_remaining_buf = packed_b_buf + (npanels_full_b * packedb_panel_stride)
                         if npanels_b_remainder > 0:
                             remain_col_start = npanels_full_b * NR
