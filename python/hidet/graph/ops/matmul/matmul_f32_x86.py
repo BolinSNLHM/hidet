@@ -347,8 +347,8 @@ class MatmulF32Taskx86(Task):
             # packb_buf_ptr = module.define_global_var(name='packb_buf_ptr', var_type=float32[packed_b_total_size])
             # packa_buf_ptr = module.define_global_var(name='packa_buf_ptr', var_type=float32[packed_a_total_size])
 
-            # packb_buf = cast(packb_buf_ptr, ~float32)
-            # packa_buf = cast(packa_buf_ptr, ~float32)
+            # packed_b_buf = cast(packb_buf_ptr, ~float32)
+            # packed_a_buf = cast(packa_buf_ptr, ~float32)
 
             ##### Start of the loops around micro kernel #####
 
@@ -843,8 +843,8 @@ class MatmulF32Taskx86(Task):
             ):
                 attrs.func_kind = 'cpu_kernel'
 
-                packb_buf = cast(request_cpu_workspace(packed_b_total_size), ~float32)
-                packa_buf = cast(request_cpu_workspace(packed_a_total_size), ~float32)
+                packed_b_buf = cast(request_cpu_workspace(packed_b_total_size), ~float32)
+                packed_a_buf = cast(request_cpu_workspace(packed_a_total_size), ~float32)
 
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
@@ -856,7 +856,7 @@ class MatmulF32Taskx86(Task):
                     work_id_5th_loop = tid_5th_loop // (nthreads // loop5_nways)
                     comm_id_5th_loop = tid_5th_loop
 
-                    gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop, packa_buf, packb_buf)
+                    gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop, packed_a_buf, packed_b_buf)
 
             assert isinstance(matmul_kernel_x86_v3, hidet.ir.Function)
             # matmul_kernel_x86_v3.kind = "cpu_kernel"
