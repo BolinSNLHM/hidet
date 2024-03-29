@@ -278,20 +278,18 @@ class MatmulF32Taskx86(Task):
                 a_ptr = cast(a, ~float32)
                 b_ptr = cast(b, ~float32)
 
-                printf("The elements in c0: %f %f %f %f %f %f %f %f\n", c[0, 0], c[0, 1], c[0, 2], c[0, 3], c[0, 4], c[0, 5], c[0, 6], c[0, 7])
-                printf("The elements in c08: %f %f %f %f %f %f %f %f\n", c[0, 8], c[0, 9], c[0, 10], c[0, 11], c[0, 12], c[0, 13], c[0, 14], c[0, 15])
-                printf("The elements in c1: %f %f %f %f %f %f %f %f\n", c[1, 0], c[1, 1], c[1, 2], c[1, 3], c[1, 4], c[1, 5], c[1, 6], c[1, 7])
-                printf("The elements in c18: %f %f %f %f %f %f %f %f\n", c[1, 8], c[1, 9], c[1, 10], c[1, 11], c[1, 12], c[1, 13], c[1, 14], c[1, 15])
-                printf("The elements in c2: %f %f %f %f %f %f %f %f\n", c[2, 0], c[2, 1], c[2, 2], c[2, 3], c[2, 4], c[2, 5], c[2, 6], c[2, 7])
-                printf("The elements in c28: %f %f %f %f %f %f %f %f\n", c[2, 8], c[2, 9], c[2, 10], c[2, 11], c[2, 12], c[2, 13], c[2, 14], c[2, 15])
-                printf("The elements in c3: %f %f %f %f %f %f %f %f\n", c[3, 0], c[3, 1], c[3, 2], c[3, 3], c[3, 4], c[3, 5], c[3, 6], c[3, 7])
-                printf("The elements in c38: %f %f %f %f %f %f %f %f\n", c[3, 8], c[3, 9], c[3, 10], c[3, 11], c[3, 12], c[3, 13], c[3, 14], c[3, 15])
-                printf("The elements in c4: %f %f %f %f %f %f %f %f\n", c[4, 0], c[4, 1], c[4, 2], c[4, 3], c[4, 4], c[4, 5], c[4, 6], c[4, 7])
-                printf("The elements in c48: %f %f %f %f %f %f %f %f\n", c[4, 8], c[4, 9], c[4, 10], c[4, 11], c[4, 12], c[4, 13], c[4, 14], c[4, 15])
-                printf("The elements in c5: %f %f %f %f %f %f %f %f\n", c[5, 0], c[5, 1], c[5, 2], c[5, 3], c[5, 4], c[5, 5], c[5, 6], c[5, 7])
-                printf("The elements in c58: %f %f %f %f %f %f %f %f\n", c[5, 8], c[5, 9], c[5, 10], c[5, 11], c[5, 12], c[5, 13], c[5, 14], c[5, 15])
-
-
+                # printf("The elements in c0: %f %f %f %f %f %f %f %f\n", c[0, 0], c[0, 1], c[0, 2], c[0, 3], c[0, 4], c[0, 5], c[0, 6], c[0, 7])
+                # printf("The elements in c08: %f %f %f %f %f %f %f %f\n", c[0, 8], c[0, 9], c[0, 10], c[0, 11], c[0, 12], c[0, 13], c[0, 14], c[0, 15])
+                # printf("The elements in c1: %f %f %f %f %f %f %f %f\n", c[1, 0], c[1, 1], c[1, 2], c[1, 3], c[1, 4], c[1, 5], c[1, 6], c[1, 7])
+                # printf("The elements in c18: %f %f %f %f %f %f %f %f\n", c[1, 8], c[1, 9], c[1, 10], c[1, 11], c[1, 12], c[1, 13], c[1, 14], c[1, 15])
+                # printf("The elements in c2: %f %f %f %f %f %f %f %f\n", c[2, 0], c[2, 1], c[2, 2], c[2, 3], c[2, 4], c[2, 5], c[2, 6], c[2, 7])
+                # printf("The elements in c28: %f %f %f %f %f %f %f %f\n", c[2, 8], c[2, 9], c[2, 10], c[2, 11], c[2, 12], c[2, 13], c[2, 14], c[2, 15])
+                # printf("The elements in c3: %f %f %f %f %f %f %f %f\n", c[3, 0], c[3, 1], c[3, 2], c[3, 3], c[3, 4], c[3, 5], c[3, 6], c[3, 7])
+                # printf("The elements in c38: %f %f %f %f %f %f %f %f\n", c[3, 8], c[3, 9], c[3, 10], c[3, 11], c[3, 12], c[3, 13], c[3, 14], c[3, 15])
+                # printf("The elements in c4: %f %f %f %f %f %f %f %f\n", c[4, 0], c[4, 1], c[4, 2], c[4, 3], c[4, 4], c[4, 5], c[4, 6], c[4, 7])
+                # printf("The elements in c48: %f %f %f %f %f %f %f %f\n", c[4, 8], c[4, 9], c[4, 10], c[4, 11], c[4, 12], c[4, 13], c[4, 14], c[4, 15])
+                # printf("The elements in c5: %f %f %f %f %f %f %f %f\n", c[5, 0], c[5, 1], c[5, 2], c[5, 3], c[5, 4], c[5, 5], c[5, 6], c[5, 7])
+                # printf("The elements in c58: %f %f %f %f %f %f %f %f\n", c[5, 8], c[5, 9], c[5, 10], c[5, 11], c[5, 12], c[5, 13], c[5, 14], c[5, 15])
 
                 for _ in range(pb):
                     bb0to7 = avx_f32x8_load_aligned(b_ptr)
