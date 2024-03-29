@@ -703,6 +703,11 @@ class MatmulF32Taskx86(Task):
 
                 thread_range_jrir(work_id_1st_loop, loop1_nways, m_iter, 1, ~ir_start, ~ir_end, ~ir_inc)
 
+                macro_print_packed_b_idx = 0
+                while macro_print_packed_b_idx < packed_b_total_size:
+                    printf("The element no. %d in packed_b: %f\n", macro_print_packed_b_idx, packed_b[macro_print_packed_b_idx])
+                    macro_print_packed_b_idx += 1
+
                 rstep_a = ps_packed_a
                 cstep_b = ps_packed_b
 
@@ -764,6 +769,9 @@ class MatmulF32Taskx86(Task):
                 m_start_loop3 = 0
                 m_end_loop3 = 0
                 thread_range_sub(loop3_nways, work_id_3rd_loop, m_size, MR, ~m_start_loop3, ~m_end_loop3)
+
+                assert m_start_loop3 == 0
+
 
                 ii = m_start_loop3
                 while ii < m_end_loop3:
@@ -850,6 +858,7 @@ class MatmulF32Taskx86(Task):
                     is_first = i_loop4 == 0
 
                     packed_b_buf: ~float32 = cast(packb_buf, ~float32) + (packed_b_individual_size * work_id_5th_loop)
+                    assert packed_b_buf == packb_buf    # FIXME: Need to remove this after finally passing the basic tests
 
                     loop4_partition_b = cast(b, ~float32) + (
                         loop4_partition_b_start_row * n_size + loop4_partition_b_start_col
