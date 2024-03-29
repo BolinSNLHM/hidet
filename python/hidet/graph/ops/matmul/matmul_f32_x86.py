@@ -485,6 +485,8 @@ class MatmulF32Taskx86(Task):
 
                 npanels_b = npanels_full_b + (1 if npanels_b_remainder != 0 else 0)
                 packedb_panel_stride = packed_b_height * NR
+                printf("In the packing func of B, npanels_b: %d\n", npanels_b)
+                printf("In the packing func of B, packedb_panel_stride: %d\n", packedb_panel_stride)
 
                 assert npanels_b == 1
 
@@ -610,10 +612,14 @@ class MatmulF32Taskx86(Task):
                         printf("In the edge part, npanels_full_b * packedb_panel_stride: %d\n",
                                npanels_full_b * packedb_panel_stride)
                         packed_b_remaining_buf = packed_b_buf + (npanels_full_b * packedb_panel_stride)
+                        printf("The offset of packed_b_remaining_buf compared to packed_b_buf: %d\n",
+                               packed_b_remaining_buf - packed_b_buf)
                         if npanels_b_remainder > 0:
                             remain_col_start = npanels_full_b * NR
                             for remain_row in range(loop4_partition_b_height):
                                 packed_b_remaining_buf_curr = packed_b_remaining_buf + (remain_row * NR)
+                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
+                                       remain_row, packed_b_remaining_buf_curr - packed_b_buf)
                                 for remain_col in range(npanels_b_remainder):
                                     packed_b_remaining_buf_curr[0] = loop4_partition_b[
                                         (remain_row * n_size) + (remain_col_start + remain_col)
@@ -667,6 +673,12 @@ class MatmulF32Taskx86(Task):
                 thread_range_jrir(work_id_macro, macro_nways, n_iter, 1, ~jr_start, ~jr_end, ~jr_inc)
 
                 thread_range_jrir(work_id_1st_loop, loop1_nways, m_iter, 1, ~ir_start, ~ir_end, ~ir_inc)
+
+                macro_print_packed_b_idx = 0
+                while macro_print_packed_b_idx < packed_b_total_size:
+                    printf("The element no. %d in packed_b: %f\n", macro_print_packed_b_idx,
+                           packed_b[macro_print_packed_b_idx])
+                    macro_print_packed_b_idx += 1
 
                 rstep_a = ps_packed_a
                 cstep_b = ps_packed_b
@@ -811,6 +823,8 @@ class MatmulF32Taskx86(Task):
                     is_first = i_loop4 == 0
 
                     packed_b_buf = packb_buf + (packed_b_individual_size * work_id_5th_loop)
+
+                    assert packed_b_buf == packb_buf
 
                     loop4_partition_b = cast(b, ~float32) + (
                         loop4_partition_b_start_row * n_size + loop4_partition_b_start_col
