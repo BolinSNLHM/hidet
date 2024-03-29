@@ -616,7 +616,7 @@ class MatmulF32Taskx86(Task):
                             remain_col_start = npanels_full_b * NR
                             for remain_row in range(loop4_partition_b_height):
                                 packed_b_remaining_buf_curr = packed_b_remaining_buf + (remain_row * NR)
-                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n\n",
+                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
                                        remain_row, packed_b_remaining_buf_curr - packed_b_buf)
                                 for remain_col in range(npanels_b_remainder):
                                     packed_b_remaining_buf_curr[0] = loop4_partition_b[
@@ -673,7 +673,7 @@ class MatmulF32Taskx86(Task):
 
                 macro_print_packed_b_idx = 0
                 while macro_print_packed_b_idx < packed_b_total_size:
-                    printf("The element no. %d in packed_b: %f\n", macro_print_packed_b_idx,
+                    printf("The element no. %d in packed_b in the macro kernel: %f\n", macro_print_packed_b_idx,
                            packed_b[macro_print_packed_b_idx])
                     macro_print_packed_b_idx += 1
 
@@ -736,6 +736,12 @@ class MatmulF32Taskx86(Task):
                 m_start_loop3 = 0
                 m_end_loop3 = 0
                 thread_range_sub(loop3_nways, work_id_3rd_loop, m_size, MR, ~m_start_loop3, ~m_end_loop3)
+
+                print_packb_idx = 0
+                while print_packb_idx < packed_b_total_size:
+                    printf("The element no. %d of the argument packed_b in 3rd loop: %f\n",
+                           print_packb_idx, packed_b[print_packb_idx])
+                    print_packb_idx += 1
 
                 ii = m_start_loop3
                 while ii < m_end_loop3:
