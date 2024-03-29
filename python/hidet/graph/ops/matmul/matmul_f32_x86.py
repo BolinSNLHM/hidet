@@ -668,6 +668,12 @@ class MatmulF32Taskx86(Task):
 
                 thread_range_jrir(work_id_1st_loop, loop1_nways, m_iter, 1, ~ir_start, ~ir_end, ~ir_inc)
 
+                macro_print_packed_b_idx = 0
+                while macro_print_packed_b_idx < packed_b_total_size:
+                    printf("The element no. %d in packed_b: %f\n", macro_print_packed_b_idx,
+                           packed_b[macro_print_packed_b_idx])
+                    macro_print_packed_b_idx += 1
+
                 rstep_a = ps_packed_a
                 cstep_b = ps_packed_b
 
@@ -811,6 +817,8 @@ class MatmulF32Taskx86(Task):
                     is_first = i_loop4 == 0
 
                     packed_b_buf = packb_buf + (packed_b_individual_size * work_id_5th_loop)
+
+                    assert packed_b_buf == packb_buf
 
                     loop4_partition_b = cast(b, ~float32) + (
                         loop4_partition_b_start_row * n_size + loop4_partition_b_start_col
