@@ -618,7 +618,7 @@ class MatmulF32Taskx86(Task):
                             remain_col_start = npanels_full_b * NR
                             for remain_row in range(loop4_partition_b_height):
                                 packed_b_remaining_buf_curr = packed_b_remaining_buf + (remain_row * NR)
-                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
+                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n\n",
                                        remain_row, packed_b_remaining_buf_curr - packed_b_buf)
                                 for remain_col in range(npanels_b_remainder):
                                     packed_b_remaining_buf_curr[0] = loop4_partition_b[
@@ -628,7 +628,6 @@ class MatmulF32Taskx86(Task):
                                     packed_b_remaining_buf_curr += 1
                                 zero_fill_col = npanels_b_remainder
                                 while zero_fill_col < NR:
-                                    printf("zero_fill_col: %d\n", zero_fill_col)
                                     packed_b_remaining_buf_curr[0] = 0.0
                                     packed_b_remaining_buf_curr += 1
                                     zero_fill_col += 1
