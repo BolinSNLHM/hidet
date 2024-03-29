@@ -498,6 +498,9 @@ class MatmulF32Taskx86(Task):
 
                 npanels_b = npanels_full_b + (1 if npanels_b_remainder != 0 else 0)
                 packedb_panel_stride = packed_b_height * NR
+                printf("In the packing func of B, npanels_b: %d\n", npanels_b)
+                printf("In the packing func of B, packedb_panel_stride: %d\n", packedb_panel_stride)
+
 
                 assert npanels_b == 1
 
@@ -643,10 +646,13 @@ class MatmulF32Taskx86(Task):
                         printf("In the edge part, npanels_full_b * packedb_panel_stride: %d\n",
                                npanels_full_b * packedb_panel_stride)
                         packed_b_remaining_buf = cast(packed_b_buf, ~float32) + (npanels_full_b * packedb_panel_stride)
+                        printf("The offset of packed_b_remaining_buf compared to packed_b_buf: %d\n", packed_b_remaining_buf - packed_b_buf)
                         if npanels_b_remainder > 0:
                             remain_col_start = npanels_full_b * NR
                             for remain_row in range(loop4_partition_b_height):
                                 packed_b_remaining_buf_curr = packed_b_remaining_buf + (remain_row * NR)
+                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
+                                       remain_row, packed_b_remaining_buf_curr - packed_b_buf)
                                 for remain_col in range(npanels_b_remainder):
                                     packed_b_remaining_buf_curr[0] = loop4_partition_b[
                                         (remain_row * n_size) + (remain_col_start + remain_col)
