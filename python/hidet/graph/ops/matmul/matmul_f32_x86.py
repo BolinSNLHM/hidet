@@ -84,7 +84,7 @@ class MatmulF32Taskx86(Task):
         return tune.extract_ir_modules(self.schedule_matmulf32_x86)
 
     @tune.space(1, MC=[2016], NC=[256, 384, 512], KC=[384, 512, 560], ways=[(1, 4, 2, 1)])
-    def schedule_matmulf32_x86(self, MC=2016, NC=384, KC=560, ways=(1, 1, 1, 1)) -> IRModule:
+    def schedule_matmulf32_x86(self, MC=2016, NC=384, KC=560, ways=(2, 2, 2, 4)) -> IRModule:
         import hidet
         from hidet.ir.type import tensor_type
         from hidet.lang import tensor, grid, as_tensor_pointer
@@ -308,40 +308,40 @@ class MatmulF32Taskx86(Task):
                     bb0to7 = avx_f32x8_load_aligned(b_ptr)
                     bb8to15 = avx_f32x8_load_aligned(b_ptr + 8)
 
-                    printf("The elements in bb0to7: %f %f %f %f %f %f %f %f\n", b_ptr[0], b_ptr[1], b_ptr[2], b_ptr[3],
-                           b_ptr[4], b_ptr[5], b_ptr[6], b_ptr[7])
-                    printf("The elements in bb8to15: %f %f %f %f %f %f %f %f\n", b_ptr[8], b_ptr[9], b_ptr[10],
-                           b_ptr[11], b_ptr[12], b_ptr[13], b_ptr[14], b_ptr[15])
+                    # printf("The elements in bb0to7: %f %f %f %f %f %f %f %f\n", b_ptr[0], b_ptr[1], b_ptr[2], b_ptr[3],
+                    #        b_ptr[4], b_ptr[5], b_ptr[6], b_ptr[7])
+                    # printf("The elements in bb8to15: %f %f %f %f %f %f %f %f\n", b_ptr[8], b_ptr[9], b_ptr[10],
+                    #        b_ptr[11], b_ptr[12], b_ptr[13], b_ptr[14], b_ptr[15])
 
                     aa1 = avx_f32x8_broadcast(a_ptr)
                     c0 = avx_f32x8_fmadd(aa1, bb0to7, c0)
                     c08 = avx_f32x8_fmadd(aa1, bb8to15, c08)
-                    printf("aa1: %f\n", a_ptr[0])
+                    # printf("aa1: %f\n", a_ptr[0])
 
                     aa2 = avx_f32x8_broadcast(a_ptr + 1)
                     c1 = avx_f32x8_fmadd(aa2, bb0to7, c1)
                     c18 = avx_f32x8_fmadd(aa2, bb8to15, c18)
-                    printf("aa2: %f\n", a_ptr[1])
+                    # printf("aa2: %f\n", a_ptr[1])
 
                     aa3 = avx_f32x8_broadcast(a_ptr + 2)
                     c2 = avx_f32x8_fmadd(aa3, bb0to7, c2)
                     c28 = avx_f32x8_fmadd(aa3, bb8to15, c28)
-                    printf("aa3: %f\n", a_ptr[2])
+                    # printf("aa3: %f\n", a_ptr[2])
 
                     aa4 = avx_f32x8_broadcast(a_ptr + 3)
                     c3 = avx_f32x8_fmadd(aa4, bb0to7, c3)
                     c38 = avx_f32x8_fmadd(aa4, bb8to15, c38)
-                    printf("aa4: %f\n", a_ptr[3])
+                    # printf("aa4: %f\n", a_ptr[3])
 
                     aa5 = avx_f32x8_broadcast(a_ptr + 4)
                     c4 = avx_f32x8_fmadd(aa5, bb0to7, c4)
                     c48 = avx_f32x8_fmadd(aa5, bb8to15, c48)
-                    printf("aa5: %f\n", a_ptr[4])
+                    # printf("aa5: %f\n", a_ptr[4])
 
                     aa6 = avx_f32x8_broadcast(a_ptr + 5)
                     c5 = avx_f32x8_fmadd(aa6, bb0to7, c5)
                     c58 = avx_f32x8_fmadd(aa6, bb8to15, c58)
-                    printf("aa6: %f\n", a_ptr[5])
+                    # printf("aa6: %f\n", a_ptr[5])
 
                     a_ptr = a_ptr + 6
                     b_ptr = b_ptr + 16
@@ -498,11 +498,8 @@ class MatmulF32Taskx86(Task):
 
                 npanels_b = npanels_full_b + (1 if npanels_b_remainder != 0 else 0)
                 packedb_panel_stride = packed_b_height * NR
-                printf("In the packing func of B, npanels_b: %d\n", npanels_b)
-                printf("In the packing func of B, packedb_panel_stride: %d\n", packedb_panel_stride)
-
-
-                assert npanels_b == 1
+                # printf("In the packing func of B, npanels_b: %d\n", npanels_b)
+                # printf("In the packing func of B, packedb_panel_stride: %d\n", packedb_panel_stride)
 
                 # Loop for the packing of B
                 for i_panel in range(npanels_b):
@@ -522,10 +519,10 @@ class MatmulF32Taskx86(Task):
                             b_panel = loop4_partition_b + (row * n_size + curr_panel_start)
                             b00 = avx_f32x8_load(b_panel)
                             b08 = avx_f32x8_load(b_panel + 8)
-                            printf("The elements in b00: %f %f %f %f %f %f %f %f\n", b_panel[0], b_panel[1], b_panel[2],
-                                   b_panel[3], b_panel[4], b_panel[5], b_panel[6], b_panel[7])
-                            printf("The elements in b08: %f %f %f %f %f %f %f %f\n", b_panel[8], b_panel[9],
-                                   b_panel[10], b_panel[11], b_panel[12], b_panel[13], b_panel[14], b_panel[15])
+                            # printf("The elements in b00: %f %f %f %f %f %f %f %f\n", b_panel[0], b_panel[1], b_panel[2],
+                            #        b_panel[3], b_panel[4], b_panel[5], b_panel[6], b_panel[7])
+                            # printf("The elements in b08: %f %f %f %f %f %f %f %f\n", b_panel[8], b_panel[9],
+                            #        b_panel[10], b_panel[11], b_panel[12], b_panel[13], b_panel[14], b_panel[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b00)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b08)
@@ -538,20 +535,20 @@ class MatmulF32Taskx86(Task):
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b18)
                             packed_b_buff_curr += 16
                             print_ptr = b_panel + n_size
-                            printf("The elements in b10: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b18: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b10: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b18: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             b20 = avx_f32x8_load(b_panel + (2 * n_size))
                             b28 = avx_f32x8_load(b_panel + (2 * n_size + 8))
                             print_ptr = b_panel + (2 * n_size)
-                            printf("The elements in b20: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b28: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b20: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b28: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b20)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b28)
@@ -560,11 +557,11 @@ class MatmulF32Taskx86(Task):
                             b30 = avx_f32x8_load(b_panel + (3 * n_size))
                             b38 = avx_f32x8_load(b_panel + (3 * n_size + 8))
                             print_ptr = b_panel + (3 * n_size)
-                            printf("The elements in b30: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                      print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b38: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                        print_ptr[15])
+                            # printf("The elements in b30: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #           print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b38: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #             print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #             print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b30)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b38)
@@ -573,11 +570,11 @@ class MatmulF32Taskx86(Task):
                             b40 = avx_f32x8_load(b_panel + (4 * n_size))
                             b48 = avx_f32x8_load(b_panel + (4 * n_size + 8))
                             print_ptr = b_panel + (4 * n_size)
-                            printf("The elements in b40: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b48: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b40: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b48: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b40)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b48)
@@ -586,11 +583,11 @@ class MatmulF32Taskx86(Task):
                             b50 = avx_f32x8_load(b_panel + (5 * n_size))
                             b58 = avx_f32x8_load(b_panel + (5 * n_size + 8))
                             print_ptr = b_panel + (5 * n_size)
-                            printf("The elements in b50: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b58: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b50: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b58: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b50)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b58)
@@ -599,11 +596,11 @@ class MatmulF32Taskx86(Task):
                             b60 = avx_f32x8_load(b_panel + (6 * n_size))
                             b68 = avx_f32x8_load(b_panel + (6 * n_size + 8))
                             print_ptr = b_panel + (6 * n_size)
-                            printf("The elements in b60: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b68: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b60: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b68: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b60)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b68)
@@ -612,11 +609,11 @@ class MatmulF32Taskx86(Task):
                             b70 = avx_f32x8_load(b_panel + (7 * n_size))
                             b78 = avx_f32x8_load(b_panel + (7 * n_size + 8))
                             print_ptr = b_panel + (7 * n_size)
-                            printf("The elements in b70: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
-                                   print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
-                            printf("The elements in b78: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
-                                   print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
-                                   print_ptr[15])
+                            # printf("The elements in b70: %f %f %f %f %f %f %f %f\n", print_ptr[0], print_ptr[1],
+                            #        print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5], print_ptr[6], print_ptr[7])
+                            # printf("The elements in b78: %f %f %f %f %f %f %f %f\n", print_ptr[8], print_ptr[9],
+                            #        print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13], print_ptr[14],
+                            #        print_ptr[15])
 
                             avx_f32x8_store_aligned(packed_b_buff_curr, b70)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b78)
@@ -629,37 +626,37 @@ class MatmulF32Taskx86(Task):
                             b00 = avx_f32x8_load(b_panel)
                             b08 = avx_f32x8_load(b_panel + 8)
                             print_ptr = b_panel
-                            printf(
-                                "Here we're in the edge handling portion. The elements in b00: %f %f %f %f %f %f %f %f\n",
-                                print_ptr[0], print_ptr[1], print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5],
-                                print_ptr[6], print_ptr[7])
-                            printf(
-                                "Here we're in the edge handling portion. The elements in b08: %f %f %f %f %f %f %f %f\n",
-                                print_ptr[8], print_ptr[9], print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13],
-                                print_ptr[14], print_ptr[15])
+                            # printf(
+                            #     "Here we're in the edge handling portion. The elements in b00: %f %f %f %f %f %f %f %f\n",
+                            #     print_ptr[0], print_ptr[1], print_ptr[2], print_ptr[3], print_ptr[4], print_ptr[5],
+                            #     print_ptr[6], print_ptr[7])
+                            # printf(
+                            #     "Here we're in the edge handling portion. The elements in b08: %f %f %f %f %f %f %f %f\n",
+                            #     print_ptr[8], print_ptr[9], print_ptr[10], print_ptr[11], print_ptr[12], print_ptr[13],
+                            #     print_ptr[14], print_ptr[15])
                             avx_f32x8_store_aligned(packed_b_buff_curr, b00)
                             avx_f32x8_store_aligned(packed_b_buff_curr + 8, b08)
                             packed_b_buff_curr += 16
                             row += 1
 
                     else:
-                        printf("In the edge part, npanels_full_b * packedb_panel_stride: %d\n",
-                               npanels_full_b * packedb_panel_stride)
+                        # printf("In the edge part, npanels_full_b * packedb_panel_stride: %d\n",
+                        #        npanels_full_b * packedb_panel_stride)
                         packed_b_remaining_buf = cast(packed_b_buf, ~float32) + (npanels_full_b * packedb_panel_stride)
-                        printf("The offset of packed_b_remaining_buf compared to packed_b_buf: %d\n", packed_b_remaining_buf - packed_b_buf)
+                        # printf("The offset of packed_b_remaining_buf compared to packed_b_buf: %d\n", packed_b_remaining_buf - packed_b_buf)
                         if npanels_b_remainder > 0:
                             remain_col_start = npanels_full_b * NR
                             for remain_row in range(loop4_partition_b_height):
                                 packed_b_remaining_buf_curr = packed_b_remaining_buf + (remain_row * NR)
-                                printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
-                                       remain_row, packed_b_remaining_buf_curr - packed_b_buf)
+                                # printf("remain_row: %d; the offset of packed_b_remaining_buf_curr compared to packed_b_buf: %d\n",
+                                #        remain_row, packed_b_remaining_buf_curr - packed_b_buf)
                                 for remain_col in range(npanels_b_remainder):
                                     packed_b_remaining_buf_curr[0] = loop4_partition_b[
                                         (remain_row * n_size) + (remain_col_start + remain_col)
                                     ]
-                                    printf(
-                                        "Here we're in the edge handling portion. The elements in packed_b_remaining_buf_curr: %f\n",
-                                        packed_b_remaining_buf_curr[0])
+                                    # printf(
+                                    #     "Here we're in the edge handling portion. The elements in packed_b_remaining_buf_curr: %f\n",
+                                    #     packed_b_remaining_buf_curr[0])
                                     packed_b_remaining_buf_curr += 1
                                 zero_fill_col = npanels_b_remainder
                                 while zero_fill_col < NR:
@@ -709,9 +706,9 @@ class MatmulF32Taskx86(Task):
                 thread_range_jrir(work_id_1st_loop, loop1_nways, m_iter, 1, ~ir_start, ~ir_end, ~ir_inc)
 
                 macro_print_packed_b_idx = 0
-                while macro_print_packed_b_idx < packed_b_total_size:
-                    printf("The element no. %d in packed_b in the macro kernel: %f\n", macro_print_packed_b_idx, packed_b[macro_print_packed_b_idx])
-                    macro_print_packed_b_idx += 1
+                # while macro_print_packed_b_idx < packed_b_total_size:
+                #     printf("The element no. %d in packed_b in the macro kernel: %f\n", macro_print_packed_b_idx, packed_b[macro_print_packed_b_idx])
+                #     macro_print_packed_b_idx += 1
 
                 rstep_a = ps_packed_a
                 cstep_b = ps_packed_b
@@ -775,17 +772,18 @@ class MatmulF32Taskx86(Task):
                 m_end_loop3 = 0
                 thread_range_sub(loop3_nways, work_id_3rd_loop, m_size, MR, ~m_start_loop3, ~m_end_loop3)
 
-                assert m_start_loop3 == 0
 
                 print_packb_idx = 0
                 # print each element of packed_b to see wtf is going on
-                while print_packb_idx < packed_b_total_size:
-                    printf("The element no. %d of the argument packed_b in 3rd loop: %f\n",
-                           print_packb_idx, packed_b[print_packb_idx])
-                    print_packb_idx += 1
+                # printf("The first print: the address of packed_b: %p\n", packed_b)
+                # while print_packb_idx <= 32:
+                #     printf("First print: The element no. %d of the argument packed_b in 3rd loop: %f\n",
+                #            print_packb_idx, packed_b[print_packb_idx])
+                #     print_packb_idx += 1
 
+                # printf("\n\n")
 
-
+                # FIXME: the output looks right even during the printing above... WHAT?????
 
                 ii = m_start_loop3
                 while ii < m_end_loop3:
@@ -800,6 +798,9 @@ class MatmulF32Taskx86(Task):
 
                     packed_a_idx = packa_index(work_id_5th_loop, work_id_3rd_loop)
                     packed_a_buf = packa_buf + (packed_a_idx * packed_a_individual_size)
+
+                    # printf("The address of packed_a_buf: %p\n", packed_a_buf)
+                    # printf("The address of packa_buf: %p\n", packa_buf)
 
                     thrcomm_barrier(
                         ~packa_thrcomm_barrier_sense[packed_a_idx],
@@ -822,6 +823,12 @@ class MatmulF32Taskx86(Task):
                         ~packa_thrcomm_threads_arrived[packed_a_idx],
                         packa_nthreads,
                     )
+                    # print_packb_idx2 = 0
+                    # printf("The second print: the address of packed_b: %p\n", packed_b)
+                    # while print_packb_idx2 <= 32:
+                    #     printf("Second print: The element no. %d of the argument packed_b in 3rd loop: %f\n",
+                    #            print_packb_idx2, packed_b[print_packb_idx2])
+                    #     print_packb_idx2 += 1
 
                     gemm_macro(
                         packed_a_buf,
@@ -872,7 +879,6 @@ class MatmulF32Taskx86(Task):
                     is_first = i_loop4 == 0
 
                     packed_b_buf: ~float32 = cast(packb_buf, ~float32) + (packed_b_individual_size * work_id_5th_loop)
-                    assert packed_b_buf == packb_buf    # FIXME: Need to remove this after finally passing the basic tests
 
                     loop4_partition_b = cast(b, ~float32) + (
                         loop4_partition_b_start_row * n_size + loop4_partition_b_start_col
@@ -966,8 +972,12 @@ class MatmulF32Taskx86(Task):
             ):
                 attrs.func_kind = 'cpu_kernel'
 
-                packed_b_buf = cast(request_cpu_workspace(packed_b_total_size * 4, True), ~float32)
-                packed_a_buf = cast(request_cpu_workspace(packed_a_total_size * 4, True), ~float32)
+                # packed_b_buf = cast(request_cpu_workspace(packed_b_total_size * 4, False), ~float32)
+                # packed_a_buf = cast(request_cpu_workspace(packed_a_total_size * 4, True), ~float32)
+                total_request = (packed_a_total_size + packed_b_total_size) * 4
+                requested_buf = cast(request_cpu_workspace(total_request, False), ~float32)
+                packed_b_buf: ~float32 = requested_buf
+                packed_a_buf: ~float32 = requested_buf + packed_b_total_size
 
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
