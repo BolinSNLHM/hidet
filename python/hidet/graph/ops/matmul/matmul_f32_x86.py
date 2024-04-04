@@ -15,6 +15,7 @@ from hidet.ir.expr import cast, if_then_else
 from hidet.ir.module import IRModule
 from hidet.ir.compute import TensorNode
 from hidet.ir.primitives import printf
+from hidet.ir.primitives.runtime import request_cpu_workspace
 from hidet.ir.stmt import DeclareScope
 from hidet.ir.task import Task
 from hidet.ir.compute import compute, reduce
@@ -212,8 +213,8 @@ class MatmulF32Taskx86(Task):
                     # Add the remainder to the last thread's end
                     if work_id == n_way - 1:
                         end[0] += n_bf_left
-                        end[0] = min(end[0], all_end)
-
+                        # end[0] = min(end[0], all_end)
+                        end[0] = if_then_else(end[0] > all_end, all_end, end[0])
             @hidet.script
             def thread_range_jrir(
                 work_id: int32, n_way: int32, n: int32, bf: int32, start: ~int32, end: ~int32, inc: ~int32
@@ -376,7 +377,8 @@ class MatmulF32Taskx86(Task):
                 avx_f32x8_store(c_ptr + (5 * nsize + 8), c58)
 
             #### Some setup code ####
-            packed_b_height = min(KC, k_size)
+            # packed_b_height = min(KC, k_size)
+            packed_b_height = if_then_else(KC < k_size, KC, k_size)
             # packed_b_width = min(NC, (n_size + NR - 1) // NR * NR)
             temp = (n_size + NR - 1) // NR * NR
             packed_b_width = if_then_else(NC < temp, NC, temp)
@@ -398,11 +400,11 @@ class MatmulF32Taskx86(Task):
             packed_a_total_size = packed_a_total_height * packed_a_width
             packed_a_individual_size = packed_a_width * packed_a_individual_height
 
-            packb_buf_ptr = module.define_global_var(name='packb_buf_ptr', var_type=float32[packed_b_total_size])
-            packa_buf_ptr = module.define_global_var(name='packa_buf_ptr', var_type=float32[packed_a_total_size])
-
-            packb_buf = cast(packb_buf_ptr, ~float32)
-            packa_buf = cast(packa_buf_ptr, ~float32)
+            # packb_buf_ptr = module.define_global_var(name='packb_buf_ptr', var_type=float32[packed_b_total_size])
+            # packa_buf_ptr = module.define_global_var(name='packa_buf_ptr', var_type=float32[packed_a_total_size])
+            #
+            # packb_buf = cast(packb_buf_ptr, ~float32)
+            # packa_buf = cast(packa_buf_ptr, ~float32)
 
             ##### Start of the loops around micro kernel #####
 
@@ -431,7 +433,9 @@ class MatmulF32Taskx86(Task):
                         continue
 
                     a_curr_panel_row_start = ii_panel * MR
-                    a_curr_panel_height = min(MR, loop3_partition_a_height - a_curr_panel_row_start)
+                    # a_curr_panel_height = min(MR, loop3_partition_a_height - a_curr_panel_row_start)
+                    a_curr_panel_height = if_then_else(MR < loop3_partition_a_height - a_curr_panel_row_start,
+                                                       MR, loop3_partition_a_height - a_curr_panel_row_start)
 
                     if a_curr_panel_height == MR:  # unroll the packing by 8
                         k_iters = loop3_partition_a_width // 8
@@ -759,6 +763,7 @@ class MatmulF32Taskx86(Task):
                 work_id_3rd_loop: int32,
                 is_first: bool,
                 work_id_5th_loop: int32,
+                packa_buf: ~float32, packb_buf: ~float32,
             ):
                 attrs.func_kind = 'cpu_internal'
                 comm_id_macro = comm_id_3rd_loop % macro_nthreads
@@ -838,6 +843,7 @@ class MatmulF32Taskx86(Task):
                 loop5_partition_b_start_col: int32,
                 comm_id_4th_loop: int32,
                 work_id_5th_loop: int32,
+                packa_buf: ~float32, packb_buf: ~float32,
             ):
                 attrs.func_kind = 'cpu_internal'
                 i_loop4 = 0
@@ -898,6 +904,7 @@ class MatmulF32Taskx86(Task):
                         work_id_3rd_loop,
                         is_first,
                         work_id_5th_loop,
+                        packa_buf, packb_buf,
                     )
 
                     thrcomm_barrier(
@@ -915,6 +922,8 @@ class MatmulF32Taskx86(Task):
                 c: float32[m_size, n_size],
                 work_id_5th_loop: int32,
                 comm_id_5th_loop: int32,
+                packa_buf: ~float32,
+                packb_buf: ~float32,
             ):
                 attrs.func_kind = 'cpu_internal'
                 comm_id_4th_loop = comm_id_5th_loop % loop4_nthreads
@@ -940,6 +949,7 @@ class MatmulF32Taskx86(Task):
                         loop5_partition_b_start_col,
                         comm_id_4th_loop,
                         work_id_5th_loop,
+                        packa_buf, packb_buf,
                     )
                     loop5_iter += b_alg_loop5
 
@@ -955,6 +965,11 @@ class MatmulF32Taskx86(Task):
                 init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
                 init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
 
+                total_space_requested = (packed_a_total_size + packed_b_total_size) * 4
+                requested_buf: ~float32 = cast(request_cpu_workspace(total_space_requested), ~float32)
+                packa_buf: ~float32 = requested_buf
+                packb_buf: ~float32 = packa_buf + packed_a_total_size
+
                 parallel_attr = 'p' + str(nthreads)
                 # The outermost loop spawning threads
                 for tidx in grid(nthreads, attrs=parallel_attr):
@@ -962,7 +977,7 @@ class MatmulF32Taskx86(Task):
                     work_id_5th_loop = tid_5th_loop // (nthreads // loop5_nways)
                     comm_id_5th_loop = tid_5th_loop
 
-                    gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop)
+                    gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop, packa_buf, packb_buf)
 
             assert isinstance(matmul_kernel_x86, hidet.ir.Function)
             # matmul_kernel_x86.kind = "cpu_kernel"
