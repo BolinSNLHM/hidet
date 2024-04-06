@@ -101,7 +101,7 @@ class MatmulF32Taskx86(Task):
         MC=[144, 288, 432, 576, 720],
         NC=[800],
         KC=[256, 560, 768, 384],
-        ways=[(1, 4, 2, 1), (2, 4, 4, 1), (1, 4, 4, 1), (1, 2, 4, 2), (1, 4, 4, 2), (2, 4, 2, 2)],
+        ways=[(2, 2, 4, 2), (2, 4, 4, 1), (1, 4, 4, 2), (4, 2, 2, 2), (1, 4, 4, 2), (2, 4, 2, 2)],
     )
     def schedule_matmulf32_x86(self, MC=2016, NC=384, KC=560, ways=(2, 4, 2, 2)) -> IRModule:
         import hidet
@@ -115,10 +115,6 @@ class MatmulF32Taskx86(Task):
         from hidet.lang.cpu import avx_f32x8_insert_f32x4, avx_f32x8_permute2f32x4
         from hidet.lang.cpu import cpu_atomic_load_n, cpu_atomic_add_fetch, cpu_atomic_fetch_xor
 
-        # node_a, node_b = self.inputs[0], self.inputs[1]
-        # a_shape = node_a.const_shape
-        # b_shape = node_b.const_shape
-        # m_size, n_size, k_size = a_shape[-2], b_shape[-1], a_shape[-1]
         m_size, n_size, k_size = self.m_size, self.n_size, self.k_size
 
         MR, NR = 6, 16
@@ -963,22 +959,46 @@ class MatmulF32Taskx86(Task):
             ):
                 attrs.func_kind = 'cpu_kernel'
 
-                init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
-                init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
+                # printf("Start of the kernel with batch size: %d, m_size: %d, k_size: %d, n_size: %d\n", batch_size, m_size, k_size, n_size)
+
 
                 total_space_requested = (packed_a_total_size + packed_b_total_size) * 4
                 requested_buf: ~float32 = cast(request_cpu_workspace(total_space_requested), ~float32)
                 packa_buf: ~float32 = requested_buf
                 packb_buf: ~float32 = packa_buf + packed_a_total_size
 
+                a_ptr = cast(a, ~float32)
+                b_ptr = cast(b, ~float32)
+                c_ptr = cast(c, ~float32)
+
                 parallel_attr = 'p' + str(nthreads)
                 # The outermost loop spawning threads
-                for tidx in grid(nthreads, attrs=parallel_attr):
-                    tid_5th_loop = tidx
-                    work_id_5th_loop = tid_5th_loop // (nthreads // loop5_nways)
-                    comm_id_5th_loop = tid_5th_loop
+                # for tidx in grid(nthreads, attrs=parallel_attr):
+                #     tid_5th_loop = tidx
+                #     work_id_5th_loop = tid_5th_loop // (nthreads // loop5_nways)
+                #     comm_id_5th_loop = tid_5th_loop
+                #
+                #     gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop, packa_buf, packb_buf)
+                #
+                # printf("End of the kernel with batch size: %d, m_size: %d, k_size: %d, n_size: %d\n", batch_size, m_size, k_size, n_size)
+                for batch in range(batch_size):
+                    init_thr(packa_thrcomm_barrier_sense, packa_thrcomm_threads_arrived, loop3_nways)
+                    init_thr(packb_thrcomm_barrier_sense, packb_thrcomm_barrier_threads_arrived, loop5_nways)
+                    # a = a_ptr + (batch * m_size * k_size)
+                    # b = b_ptr + (batch * k_size * n_size)
+                    # c = c_ptr + (batch * m_size * n_size)
+                    a_mat_size = m_size * k_size
+                    b_mat_size = k_size * n_size
+                    c_mat_size = m_size * n_size
+                    a_matrix = as_tensor_pointer(a_ptr + (batch * a_mat_size), dtype=float32, shape=[m_size, k_size])
+                    b_matrix = as_tensor_pointer(b_ptr + (batch * b_mat_size), dtype=float32, shape=[k_size, n_size])
+                    c_matrix = as_tensor_pointer(c_ptr + (batch * c_mat_size), dtype=float32, shape=[m_size, n_size])
+                    for tidx in grid(nthreads, attrs=parallel_attr):
+                        tid_5th_loop = tidx
+                        work_id_5th_loop = tid_5th_loop // (nthreads // loop5_nways)
+                        comm_id_5th_loop = tid_5th_loop
 
-                    gemm_5th_loop(a, b, c, work_id_5th_loop, comm_id_5th_loop, packa_buf, packb_buf)
+                        gemm_5th_loop(a_matrix, b_matrix, c_matrix, work_id_5th_loop, comm_id_5th_loop, packa_buf, packb_buf)
 
             assert isinstance(matmul_kernel_x86, hidet.ir.Function)
             # matmul_kernel_x86.kind = "cpu_kernel"
