@@ -115,10 +115,11 @@ class MatmulF32Taskx86(Task):
         from hidet.lang.cpu import avx_f32x8_insert_f32x4, avx_f32x8_permute2f32x4
         from hidet.lang.cpu import cpu_atomic_load_n, cpu_atomic_add_fetch, cpu_atomic_fetch_xor
 
-        node_a, node_b = self.inputs[0], self.inputs[1]
-        a_shape = node_a.const_shape
-        b_shape = node_b.const_shape
-        m_size, n_size, k_size = a_shape[-2], b_shape[-1], a_shape[-1]
+        # node_a, node_b = self.inputs[0], self.inputs[1]
+        # a_shape = node_a.const_shape
+        # b_shape = node_b.const_shape
+        # m_size, n_size, k_size = a_shape[-2], b_shape[-1], a_shape[-1]
+        m_size, n_size, k_size = self.m_size, self.n_size, self.k_size
 
         MR, NR = 6, 16
 

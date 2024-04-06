@@ -22,7 +22,7 @@ CpuContext* CpuContext::global() {
 static void reserve_cpu_workspace(Workspace &workspace, size_t nbytes) {
     if(nbytes > workspace.allocated_nbytes) {
         if(workspace.base) {
-            free_cuda_storage(reinterpret_cast<uint64_t>(workspace.base));
+            free_cpu_storage(reinterpret_cast<uint64_t>(workspace.base));
         }
         workspace.base = reinterpret_cast<void*>(allocate_cpu_storage(nbytes));
         if(workspace.base == nullptr) {

@@ -53,7 +53,7 @@ class SoftmaxTask(Task):
 
         shape = x.shape
         axis_extent = shape[axis]
-        reduced_shape = shape[:axis] + shape[axis + 1 :]
+        reduced_shape = shape[:axis] + shape[axis + 1:]
 
         # max value
         max_value = compute(
@@ -68,7 +68,7 @@ class SoftmaxTask(Task):
         exp_value = compute(
             name='exp_value',
             shape=shape,
-            fcompute=lambda *indices: prim.exp(x[indices] - max_value[indices[:axis] + indices[axis + 1 :]]),
+            fcompute=lambda *indices: prim.exp(x[indices] - max_value[indices[:axis] + indices[axis + 1:]]),
         )
 
         # sum
@@ -86,7 +86,7 @@ class SoftmaxTask(Task):
         out = compute(
             name='out',
             shape=shape,
-            fcompute=lambda *indices: exp_value[indices] / sum_value[indices[:axis] + indices[axis + 1 :]],
+            fcompute=lambda *indices: exp_value[indices] / sum_value[indices[:axis] + indices[axis + 1:]],
         )
         super().__init__(name='softmax', inputs=[x], outputs=[out])
 
@@ -106,7 +106,7 @@ class SoftmaxTask(Task):
         shape = self.inputs[0].shape
         axis = self.axis
         reduce_extent = shape[axis]
-        reduced_shape = shape[:axis] + shape[axis + 1 :]
+        reduced_shape = shape[:axis] + shape[axis + 1:]
         n_reduce = math.prod(reduced_shape)
         warp_size = 32
         outer_extent = (reduce_extent + warp_size - 1) // warp_size
@@ -157,11 +157,6 @@ class SoftmaxTask(Task):
 
         return ir_module
 
-    def implement_cpu(self, working_dir: str) -> Union[IRModule, List[IRModule]]:
-        if self.inputs[0].type.dtype != float32:
-            return NotImplemented  # use auto-scheduler
-        return tune.extract_ir_modules(self.schedule_softmax_cpu)
-
 
 class CPUSoftmaxTask(SoftmaxTask):
     def allow_epilogue(self) -> bool:
@@ -193,7 +188,7 @@ class CPUSoftmaxTask(SoftmaxTask):
 
         shape = self.inputs[0].shape
         head = shape[: self.axis]
-        tail = shape[self.axis :] if self.axis == len(shape) - 1 else shape[self.axis + 1 :]
+        tail = shape[self.axis:] if self.axis == len(shape) - 1 else shape[self.axis + 1:]
         head_size = prod(head)
         tail_size = prod(tail)
         axis_size = shape[self.axis]
@@ -311,3 +306,8 @@ class CPUSoftmaxTask(SoftmaxTask):
             assert isinstance(softmax_cpu_kernel, hidet.ir.Function)
             ir_module = module.ir_module()
             return ir_module
+
+    def implement_cpu(self, working_dir: str) -> Union[IRModule, List[IRModule]]:
+        if self.inputs[0].type.dtype != float32:
+            return NotImplemented  # use auto-scheduler
+        return tune.extract_ir_modules(self.schedule_softmax_cpu)
